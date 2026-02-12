@@ -116,6 +116,7 @@ def run_scenarios_parallel_subprocess(
     fail_fast: bool = False,
     verbose: bool = True,
     python_executable: str = "python",
+    k_override: Optional[int] = None,
 ) -> Dict[str, dict]:
     """
     Run scenarios in parallel using subprocesses.
@@ -168,6 +169,11 @@ def run_scenarios_parallel_subprocess(
     # ------------------------------------------------------------------
     # Phase 1: Launch parallel subprocesses (caches are ready)
     # ------------------------------------------------------------------
+    # When k_override is set, organise output into a k-specific subfolder
+    effective_output_dir = output_dir
+    if k_override is not None:
+        effective_output_dir = os.path.join(output_dir, f"k{k_override}")
+
     waves = topological_sort_scenarios(scenarios)
     all_results = {}
 
@@ -184,10 +190,11 @@ def run_scenarios_parallel_subprocess(
             cmd = build_scenario_command(
                 run_id,
                 data_dir=data_dir,
-                output_dir=output_dir,
+                output_dir=effective_output_dir,
                 cache_dir=cache_dir,
                 seed=seed,
                 device=device,
+                k_values=[k_override] if k_override is not None else None,
                 n_replicates=n_replicates,
                 fail_fast=fail_fast,
                 parallel_experiments=effective_workers,
@@ -197,7 +204,7 @@ def run_scenarios_parallel_subprocess(
 
         # Run this wave in parallel
         wave_results = {}
-        scenario_log_dir = os.path.join(output_dir, "logs")
+        scenario_log_dir = os.path.join(effective_output_dir, "logs")
 
         with ProcessPoolExecutor(max_workers=effective_workers) as executor:
             futures = {
@@ -252,9 +259,15 @@ def run_scenarios_sequential(
     device: str = "cpu",
     fail_fast: bool = False,
     verbose: bool = True,
+    k_override: Optional[int] = None,
 ) -> Dict[str, dict]:
     """Run scenarios sequentially (for testing or single-core systems)."""
     from .scenario import run_scenario_standalone
+
+    # When k_override is set, organise output into a k-specific subfolder
+    effective_output_dir = output_dir
+    if k_override is not None:
+        effective_output_dir = os.path.join(output_dir, f"k{k_override}")
 
     results = {}
 
@@ -268,10 +281,11 @@ def run_scenarios_sequential(
             summary = run_scenario_standalone(
                 run_id=run_id,
                 data_dir=data_dir,
-                output_dir=output_dir,
+                output_dir=effective_output_dir,
                 cache_dir=cache_dir,
                 seed=seed,
                 device=device,
+                k_values=[k_override] if k_override is not None else None,
                 fail_fast=fail_fast,
                 verbose=verbose,
             )
@@ -372,6 +386,15 @@ Examples:
     )
 
     parser.add_argument(
+        "--k",
+        type=int,
+        default=None,
+        help="Override coreset size K for all scenarios. "
+             "Output goes into <output-dir>/k<K>/. "
+             "(default: use RunSpec defaults, typically 300)"
+    )
+
+    parser.add_argument(
         "--fail-fast",
         action="store_true",
         help="Stop on first failure"
@@ -468,6 +491,8 @@ Examples:
         print(f"Scenarios: {scenarios}")
         print(f"Workers: {args.n_workers if not args.sequential else 1}")
         print(f"Mode: {'sequential' if args.sequential else 'parallel'}")
+        if args.k is not None:
+            print(f"K override: {args.k}  (output → {args.output_dir}/k{args.k}/)")
         print(f"{'='*60}\n")
 
     if args.sequential:
@@ -480,6 +505,7 @@ Examples:
             device=args.device,
             fail_fast=args.fail_fast,
             verbose=verbose,
+            k_override=args.k,
         )
     else:
         results = run_scenarios_parallel_subprocess(
@@ -494,6 +520,7 @@ Examples:
             fail_fast=args.fail_fast,
             verbose=verbose,
             python_executable=args.python,
+            k_override=args.k,
         )
 
     elapsed = time.time() - start_time

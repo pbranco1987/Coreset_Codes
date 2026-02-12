@@ -2,8 +2,13 @@
 # ============================================================================
 # Experiment Monitor — Organized tmux session with one window per scenario
 #
-# Usage:  bash scripts/monitor.sh [OUTPUT_DIR]
+# Usage:  bash scripts/monitor.sh [OUTPUT_DIR] [K]
 #         Default OUTPUT_DIR: ~/Coreset_Codes/runs_out_labgele
+#         When K is given, monitors OUTPUT_DIR/k<K>/ and uses session monitor_k<K>
+#
+# Examples:
+#   bash scripts/monitor.sh ~/Coreset_Codes/runs_out_labgele 300
+#   bash scripts/monitor.sh ~/Coreset_Codes/runs_out_labgele      # no K subfolder
 #
 # Navigation:
 #   Ctrl+B, n        → next scenario window
@@ -12,14 +17,23 @@
 #   Ctrl+B, w        → list all windows (pick one)
 #   Ctrl+B, d        → detach (experiments keep running)
 #
-# Reattach:  tmux attach -t monitor
+# Reattach:  tmux attach -t monitor_k300   (or whatever K you used)
 # ============================================================================
 set -euo pipefail
 
 OUTPUT_DIR="${1:-$HOME/Coreset_Codes/runs_out_labgele}"
+K_VALUE="${2:-}"
 MAIN_LOG_DIR="$HOME/Coreset_Codes/logs"
+
+# When K is specified, scope into the k-subfolder
+if [ -n "$K_VALUE" ]; then
+    OUTPUT_DIR="$OUTPUT_DIR/k${K_VALUE}"
+    SESSION="monitor_k${K_VALUE}"
+else
+    SESSION="monitor"
+fi
+
 SCENARIO_LOG_DIR="$OUTPUT_DIR/logs"
-SESSION="monitor"
 
 # Kill existing monitor session if any
 tmux kill-session -t "$SESSION" 2>/dev/null || true
@@ -101,7 +115,7 @@ echo "    Ctrl+B, 0     → dashboard"
 echo "    Ctrl+B, w     → list all windows"
 echo "    Ctrl+B, d     → detach"
 echo ""
-echo "  Reattach later:  tmux attach -t monitor"
+echo "  Reattach later:  tmux attach -t $SESSION"
 echo "================================================"
 echo ""
 
