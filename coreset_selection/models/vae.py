@@ -105,6 +105,18 @@ class VAETrainer:
         if batch_size <= 0:
             batch_size = n_train
 
+        # Steps per epoch (needed for scheduler)
+        use_full_batch = n_train <= max(batch_size, 50_000)
+        steps_per_epoch = 1 if use_full_batch else max(1, (n_train + batch_size - 1) // batch_size)
+
+        # OneCycleLR: ramps LR up then cosine-anneals down — much faster convergence
+        scheduler = torch.optim.lr_scheduler.OneCycleLR(
+            optimizer,
+            max_lr=float(self.cfg.lr) * 10,
+            epochs=epochs,
+            steps_per_epoch=steps_per_epoch,
+        )
+
         log_every = int(getattr(self.cfg, "log_every", 10))
         if log_every <= 0:
             log_every = 10
@@ -144,10 +156,6 @@ class VAETrainer:
             else:
                 X_val_t = X_val_t.to(self.device)
 
-        # Full-batch when dataset is small (eliminates inner Python loop).
-        # 50k * 621 * 4 bytes = ~120 MB, trivially fits.
-        use_full_batch = n_train <= max(batch_size, 50_000)
-
         n_params = sum(p.numel() for p in self.model.parameters())
         print(
             f"[VAE] Training: {epochs} epochs, N={n_train}, D={input_dim}, "
@@ -181,6 +189,7 @@ class VAETrainer:
                 optimizer.zero_grad(set_to_none=True)
                 loss.backward()
                 optimizer.step()
+                scheduler.step()
 
                 # --- logging (infrequent) ---
                 if epoch % log_every == 0 or epoch == epochs - 1:
@@ -232,6 +241,7 @@ class VAETrainer:
                     optimizer.zero_grad(set_to_none=True)
                     loss.backward()
                     optimizer.step()
+                    scheduler.step()
 
                     epoch_loss = epoch_loss + loss.detach() * batch.size(0)
 

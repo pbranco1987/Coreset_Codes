@@ -678,7 +678,7 @@ def prebuild_full_cache(
         base_cfg,
         rep_id=rep_id,
         seed=int(seed + rep_id),
-        vae=dc_replace(base_cfg.vae, epochs=max(int(base_cfg.vae.epochs), 1500)),
+        vae=dc_replace(base_cfg.vae, epochs=max(int(base_cfg.vae.epochs), 750)),
         pca=dc_replace(base_cfg.pca, n_components=max(int(base_cfg.pca.n_components), 16)),
     )
 
