@@ -358,6 +358,17 @@ class BrazilTelecomDataLoader:
                 continue
             feature_cols.append(col)
 
+        # Rename pre-engineered missingness indicator columns so their role
+        # is explicit:  "Foo_missing" → "missingness_indicator_of_Foo"
+        rename_map = {}
+        for col in feature_cols:
+            if col.endswith("_missing"):
+                base = col[: -len("_missing")]
+                rename_map[col] = f"missingness_indicator_of_{base}"
+        if rename_map:
+            df.rename(columns=rename_map, inplace=True)
+            feature_cols = [rename_map.get(c, c) for c in feature_cols]
+
         return feature_cols
 
     def _compute_cov_area_target(
