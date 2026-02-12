@@ -7,6 +7,19 @@ name = "coreset-selection"
 version = "0.1.0"
 description = "Geographically-constrained Pareto coreset selection for multi-objective optimization"
 requires-python = ">=3.8"
+dependencies = [
+    "numpy>=1.21",
+    "scipy>=1.7",
+    "pandas>=1.3",
+    "scikit-learn>=1.0",
+    "torch>=1.10",
+    "matplotlib>=3.4",
+    "seaborn>=0.11",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0", "pytest-cov"]
+geo = ["geopandas>=0.12"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
