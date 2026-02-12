@@ -358,17 +358,6 @@ class BrazilTelecomDataLoader:
                 continue
             feature_cols.append(col)
 
-        # Rename pre-engineered missingness indicator columns so their role
-        # is explicit:  "Foo_missing" → "missingness_indicator_of_Foo"
-        rename_map = {}
-        for col in feature_cols:
-            if col.endswith("_missing"):
-                base = col[: -len("_missing")]
-                rename_map[col] = f"missingness_indicator_of_{base}"
-        if rename_map:
-            df.rename(columns=rename_map, inplace=True)
-            feature_cols = [rename_map.get(c, c) for c in feature_cols]
-
         return feature_cols
 
     def _compute_cov_area_target(
@@ -719,6 +708,18 @@ class BrazilTelecomDataLoader:
                 treat_bool_as_categorical=getattr(pcfg, "treat_bool_as_categorical", True),
                 auto_detect_targets=getattr(pcfg, "auto_detect_targets", True),
             )
+
+        # Rename pre-engineered missingness indicator columns so their role
+        # is explicit:  "Foo_missing" → "missingness_indicator_of_Foo"
+        # This must happen BEFORE schema inference so the new names propagate
+        # through the entire pipeline.
+        _rename_map = {}
+        for col in df_main.columns:
+            if col.endswith("_missing"):
+                base = col[: -len("_missing")]
+                _rename_map[col] = f"missingness_indicator_of_{base}"
+        if _rename_map:
+            df_main.rename(columns=_rename_map, inplace=True)
 
         schema = infer_schema(df_main, **schema_kwargs)
         schema.print_summary()
