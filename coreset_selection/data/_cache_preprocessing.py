@@ -257,12 +257,22 @@ def _preprocess_fit_transform(
     # Missingness indicators for columns with any missing values
     # Phase 2: only add indicators for numeric/ordinal columns; categoricals
     # use a missing code (e.g. -1) directly.
+    # Skip columns that are already missingness indicators (suffix _missing),
+    # and columns that already have a pre-engineered _missing partner in the
+    # feature set, to avoid redundant double-indicators.
     missing_cols = np.flatnonzero(np.any(miss_mask, axis=0))
+    feature_name_set = set(feature_names)
     indicator_cols = []
     for j in missing_cols:
         ft = feature_types[j] if j < len(feature_types) else "numeric"
-        if ft != "categorical":
-            indicator_cols.append(j)
+        if ft == "categorical":
+            continue
+        name = feature_names[j] if j < len(feature_names) else ""
+        if name.endswith("_missing"):
+            continue
+        if f"{name}_missing" in feature_name_set:
+            continue
+        indicator_cols.append(j)
 
     if indicator_cols:
         miss_ind = miss_mask[:, indicator_cols].astype(np.float32)
