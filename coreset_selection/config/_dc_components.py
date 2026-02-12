@@ -182,16 +182,16 @@ class VAEConfig:
     # Per manuscript Table 1
     latent_dim: int = 32
     hidden_dim: int = 128
-    epochs: int = 750  # VAE training epochs (with early stopping + LR scheduler)
+    epochs: int = 1500  # VAE training epochs (with early stopping)
     batch_size: int = 256
     lr: float = 1e-3
     kl_weight: float = 0.1
-    early_stopping_patience: int = 80  # Early stopping patience (epochs)
+    early_stopping_patience: int = 200  # Early stopping patience (epochs)
     validation_frac: float = 0.1
 
     # Performance / logging controls
     log_every: int = 10
-    val_every: int = 5
+    val_every: int = 10
     embed_batch_size: int = 0
 
     # Threading: fixed at 4 threads per experiment.
