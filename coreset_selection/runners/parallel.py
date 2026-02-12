@@ -57,6 +57,7 @@ def run_scenario_subprocess(
     run_id: str,
     cmd: List[str],
     verbose: bool = True,
+    log_dir: str = "",
 ) -> Tuple[str, int, float, str, str]:
     """
     Run a scenario in a subprocess.
@@ -79,6 +80,21 @@ def run_scenario_subprocess(
         if verbose:
             status = "completed" if result.returncode == 0 else "FAILED"
             print(f"[parallel] {run_id} {status} in {elapsed:.1f}s")
+
+        # Write per-scenario log files for monitoring
+        if log_dir:
+            os.makedirs(log_dir, exist_ok=True)
+            log_path = os.path.join(log_dir, f"{run_id}.log")
+            with open(log_path, "w") as f:
+                f.write(f"=== {run_id} ===\n")
+                f.write(f"Command: {' '.join(cmd)}\n")
+                f.write(f"Status: {status} (exit code {result.returncode})\n")
+                f.write(f"Elapsed: {elapsed:.1f}s\n")
+                f.write(f"\n{'='*60}\nSTDOUT\n{'='*60}\n")
+                f.write(result.stdout)
+                if result.stderr:
+                    f.write(f"\n{'='*60}\nSTDERR\n{'='*60}\n")
+                    f.write(result.stderr)
 
         return (run_id, result.returncode, elapsed, result.stdout, result.stderr)
 
@@ -181,10 +197,11 @@ def run_scenarios_parallel_subprocess(
 
         # Run this wave in parallel
         wave_results = {}
+        scenario_log_dir = os.path.join(output_dir, "logs")
 
         with ProcessPoolExecutor(max_workers=effective_workers) as executor:
             futures = {
-                executor.submit(run_scenario_subprocess, run_id, cmd, verbose): run_id
+                executor.submit(run_scenario_subprocess, run_id, cmd, verbose, scenario_log_dir): run_id
                 for run_id, cmd in commands.items()
             }
 
