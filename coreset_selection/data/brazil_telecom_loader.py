@@ -722,6 +722,34 @@ class BrazilTelecomDataLoader:
             df_main.rename(columns=_rename_map, inplace=True)
 
         schema = infer_schema(df_main, **schema_kwargs)
+
+        # Also exclude missingness indicators of target columns to prevent
+        # leakage (e.g. missingness_indicator_of_pct_limite_mean hints that
+        # pct_limite_mean was missing).
+        target_col_names = schema.target_columns
+        _miss_prefix = "missingness_indicator_of_"
+        target_base_names = set(target_col_names)
+        missingness_of_targets = [
+            c for c in schema.feature_columns
+            if c.startswith(_miss_prefix) and c[len(_miss_prefix):] in target_base_names
+        ]
+        for c in missingness_of_targets:
+            schema.column_types[c] = FeatureType.TARGET
+
+        # Save excluded columns (targets + their missingness indicators) to CSV
+        # so the data is not lost.
+        all_excluded = target_col_names + missingness_of_targets
+        if all_excluded:
+            excluded_df = df_main[['codigo_ibge'] + all_excluded].copy()
+            excl_path = os.path.join(
+                os.path.dirname(self.files.smp_main_path),
+                "excluded_target_columns.csv",
+            )
+            excluded_df.to_csv(excl_path, index=False)
+            print(f"  Saved {len(all_excluded)} excluded columns to {excl_path}")
+            print(f"    Target columns ({len(target_col_names)}): {target_col_names[:5]}{'...' if len(target_col_names) > 5 else ''}")
+            print(f"    Missingness of targets ({len(missingness_of_targets)}): {missingness_of_targets[:5]}{'...' if len(missingness_of_targets) > 5 else ''}")
+
         schema.print_summary()
 
         # Feature columns = numeric + ordinal + categorical (in schema order)
