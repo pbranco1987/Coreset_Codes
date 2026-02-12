@@ -6,8 +6,9 @@ This module orchestrates a single run (R#) for a single replicate.
 Key responsibilities:
 - Build/load replicate cache assets (data splits, standardized features, VAE/PCA reps)
 - Construct objective computers in the requested representation space
-- Run NSGA-II in the selected space with exact-k or quota constraints
-- Evaluate representative solutions in standardized raw space (Section 5.9)
+- Run NSGA-II in the selected space (default: VAE latent space) with exact-k
+  or quota constraints
+- Evaluate representative solutions in standardized raw space (always!)
 - Save Pareto fronts, selected indices, and evaluation summaries
 """
 
@@ -519,8 +520,7 @@ class ExperimentRunner(R0Mixin, DiagnosticsMixin, EffortMixin, EvalMixin):
         Build objective computer only for the requested representation space.
 
         This avoids expensive computation for spaces that won't be used.
-        For example, R1 (VAE space) won't waste time building the raw space
-        computer (which involves k-means and pairwise distances in 621 dims).
+        The default is VAE latent space; raw and PCA are ablation-only (R8/R9).
 
         Spaces:
         - "raw" : standardized raw features (X_scaled)

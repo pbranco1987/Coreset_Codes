@@ -322,8 +322,8 @@ class ExperimentConfig:
     rep_id: int = 0
     seed: int = 123
     device: str = "cpu"
-    # Default optimization space (manuscript primary runs use raw)
-    space: str = "raw"
+    # Default optimization space (VAE latent; raw/PCA are ablation-only)
+    space: str = "vae"
     files: FilesConfig = field(default_factory=FilesConfig)
     preprocessing: PreprocessingConfig = field(default_factory=PreprocessingConfig)
     vae: VAEConfig = field(default_factory=VAEConfig)

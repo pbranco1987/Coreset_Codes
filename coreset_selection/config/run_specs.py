@@ -4,10 +4,19 @@ Run specifications (R0–R14) aligned with the manuscript "Constrained Nyström
 Landmark Selection for Scalable Telecom Analytics".
 
 The manuscript defines a small *run matrix* that varies:
-  - representation space used for optimization (raw / PCA / VAE mean)
+  - representation space used for optimization (VAE default / raw / PCA ablation)
   - proportionality constraints (population-share, count quota, joint, none)
   - objective set (MMD+Sinkhorn by default; SKL only as an ablation)
   - whether the run is a k-sweep, dimension-sweep, and/or multi-seed
+
+**Optimization vs evaluation spaces:**
+  - The *optimization space* (``space`` field) determines which representation
+    is used for NSGA-II (VAE latent embeddings by default).
+  - *All evaluations* are always conducted in the standardised raw attribute
+    space, regardless of the optimization space.  This ensures fair and
+    comparable metrics across all experiment configurations.
+  - Raw-space (R8) and PCA-space (R9) configurations exist as representation-
+    transfer ablation experiments to compare against the VAE default.
 
 This module provides:
   - RunSpec: lightweight run definition
@@ -16,6 +25,8 @@ This module provides:
 
 Notes
 -----
+* K is user-defined (via ``--k`` or the ``K_GRID`` sweep); the default
+  fallback is k=300 when the user does not specify a value.
 * We keep the historical flag `use_quota_constraints` for backward
   compatibility, but the canonical switch is `GeoConfig.constraint_mode`.
 * The manuscript's "R0" quota path is used by quota-mode baselines and quota
@@ -46,7 +57,7 @@ class RunSpec:
     description: str
 
     # Optimization space and objectives
-    space: str = "raw"  # raw|pca|vae
+    space: str = "vae"  # vae|raw|pca  (VAE default; raw/PCA are ablation-only)
     objectives: Tuple[str, ...] = ("mmd", "sinkhorn")
 
     # Constraints
@@ -116,80 +127,84 @@ def get_run_specs() -> Dict[str, RunSpec]:
             cache_build_mode="skip",
         ),
 
-        # R1: PRIMARY configuration (multi-seed at k=300, single-seed elsewhere)
+        # R1: PRIMARY configuration — VAE space, multi-seed (5 replicates at user k)
         "R1": RunSpec(
             run_id="R1",
-            description="Primary: raw space, population-share constraint, MMD+Sinkhorn, k-sweep",
-            space="raw",
+            description="Primary: VAE space, population-share constraint, MMD+Sinkhorn, multi-seed",
+            space="vae",
             objectives=("mmd", "sinkhorn"),
             constraint_mode="population_share",
             enforce_exact_k=True,
             k=300,
             sweep_k=K_GRID,
-            n_reps=1,
-            n_reps_by_k={300: 5},
+            n_reps=5,
             baselines_enabled=False,
             eval_enabled=True,
-            requires_vae=False,
+            requires_vae=True,
             requires_pca=False,
         ),
 
-        # R2/R3: single-objective ablations under primary constraint
+        # R2/R3: single-objective ablations under primary constraint (VAE space)
         "R2": RunSpec(
             run_id="R2",
-            description="Ablation: MMD-only under population-share constraint (k=300)",
-            space="raw",
+            description="Ablation: MMD-only, VAE space, population-share constraint",
+            space="vae",
             objectives=("mmd",),
             constraint_mode="population_share",
             k=300,
             sweep_k=None,
             n_reps=1,
+            requires_vae=True,
         ),
         "R3": RunSpec(
             run_id="R3",
-            description="Ablation: Sinkhorn-only under population-share constraint (k=300)",
-            space="raw",
+            description="Ablation: Sinkhorn-only, VAE space, population-share constraint",
+            space="vae",
             objectives=("sinkhorn",),
             constraint_mode="population_share",
             k=300,
             sweep_k=None,
             n_reps=1,
+            requires_vae=True,
         ),
 
-        # R4: constraint swap (municipality-share quota)
+        # R4: constraint swap — municipality-share quota (VAE space)
         "R4": RunSpec(
             run_id="R4",
-            description="Constraint swap: municipality-share quota (w≡1) with MMD+Sinkhorn (k=300)",
-            space="raw",
+            description="Constraint swap: municipality-share quota (w≡1), VAE space, MMD+Sinkhorn",
+            space="vae",
             objectives=("mmd", "sinkhorn"),
             constraint_mode="municipality_share_quota",
             k=300,
             sweep_k=None,
             n_reps=1,
+            requires_vae=True,
         ),
 
-        # R5: joint constraints (single-seed; 5-seed reserved for population_share + k=300)
+        # R5: joint constraints (VAE space)
         "R5": RunSpec(
             run_id="R5",
-            description="Joint constraints: population-share + municipality-share quota, MMD+Sinkhorn (k=300)",
-            space="raw",
+            description="Joint constraints: population-share + municipality-share quota, VAE space, MMD+Sinkhorn",
+            space="vae",
             objectives=("mmd", "sinkhorn"),
             constraint_mode="joint",
             k=300,
             sweep_k=None,
             n_reps=1,
+            requires_vae=True,
         ),
 
-        # R6: no proportionality constraints (exact-k only)
+        # R6: no proportionality constraints — exact-k only (VAE space)
         "R6": RunSpec(
             run_id="R6",
-            description="Constraint ablation: exact-k only (no proportionality), MMD+Sinkhorn (k=300)",
-            space="raw",
+            description="Constraint ablation: exact-k only (no proportionality), VAE space, MMD+Sinkhorn",
+            space="vae",
             objectives=("mmd", "sinkhorn"),
             constraint_mode="none",
             k=300,
             sweep_k=None,
             n_reps=1,
+            requires_vae=True,
         ),
 
         # R7: SKL ablation (VAE mean space; tri-objective)
@@ -205,21 +220,70 @@ def get_run_specs() -> Dict[str, RunSpec]:
             requires_vae=True,
         ),
 
-        # R8/R9: representation transfer
+        # R8/R9: representation transfer ablations (raw and PCA k-sweeps)
+        # These compare optimization in alternative spaces against the VAE
+        # default (R1).  All evaluation is still in standardised raw space.
         "R8": RunSpec(
             run_id="R8",
-            description="Representation transfer: PCA space, population-share, MMD+Sinkhorn (k=300)",
+            description="Repr transfer ablation: raw space, population-share, MMD+Sinkhorn, k-sweep",
+            space="raw",
+            objectives=("mmd", "sinkhorn"),
+            constraint_mode="population_share",
+            enforce_exact_k=True,
+            k=300,
+            sweep_k=K_GRID,
+            n_reps=1,
+            requires_vae=False,
+            requires_pca=False,
+        ),
+        "R9": RunSpec(
+            run_id="R9",
+            description="Repr transfer ablation: PCA space, population-share, MMD+Sinkhorn, k-sweep",
             space="pca",
             objectives=("mmd", "sinkhorn"),
+            constraint_mode="population_share",
+            enforce_exact_k=True,
+            k=300,
+            sweep_k=K_GRID,
+            n_reps=1,
+            requires_vae=False,
+            requires_pca=True,
+        ),
+
+        # R10: baseline suite (VAE space)
+        "R10": RunSpec(
+            run_id="R10",
+            description="Baseline suite: VAE space (with diagnostics + constraints as configured)",
+            space="vae",
+            objectives=(),
             constraint_mode="population_share",
             k=300,
             sweep_k=None,
             n_reps=1,
-            requires_pca=True,
+            baselines_enabled=True,
+            eval_enabled=True,
+            requires_vae=True,
         ),
-        "R9": RunSpec(
-            run_id="R9",
-            description="Representation transfer: VAE mean space, population-share, MMD+Sinkhorn (k=300)",
+
+        # R11: diagnostics — proxy stability, alignment (VAE space)
+        "R11": RunSpec(
+            run_id="R11",
+            description="Diagnostics: proxy stability + objective/metric alignment, VAE space",
+            space="vae",
+            objectives=(),
+            constraint_mode="population_share",
+            k=300,
+            sweep_k=None,
+            n_reps=1,
+            baselines_enabled=False,
+            eval_enabled=True,
+            requires_vae=True,
+        ),
+
+        # R12: effort sweep — vary NSGA-II effort knobs (VAE space)
+        "R12": RunSpec(
+            run_id="R12",
+            description="Effort sweep: vary NSGA-II effort knobs, VAE space, population-share",
             space="vae",
             objectives=("mmd", "sinkhorn"),
             constraint_mode="population_share",
@@ -229,50 +293,10 @@ def get_run_specs() -> Dict[str, RunSpec]:
             requires_vae=True,
         ),
 
-        # R10: baseline suite (k=300)
-        "R10": RunSpec(
-            run_id="R10",
-            description="Baseline suite at k=300 (with diagnostics + constraints as configured)",
-            space="raw",
-            objectives=(),
-            constraint_mode="population_share",
-            k=300,
-            sweep_k=None,
-            n_reps=1,
-            baselines_enabled=True,
-            eval_enabled=True,
-        ),
-
-        # R11: diagnostics (proxy stability, alignment). Implemented as eval-only hook.
-        "R11": RunSpec(
-            run_id="R11",
-            description="Diagnostics: proxy stability + objective/metric alignment (k=300)",
-            space="raw",
-            objectives=(),
-            constraint_mode="population_share",
-            k=300,
-            sweep_k=None,
-            n_reps=1,
-            baselines_enabled=False,
-            eval_enabled=True,
-        ),
-
-        # R12: effort sweep (still uses solver, but run_scenario controls parameters externally)
-        "R12": RunSpec(
-            run_id="R12",
-            description="Effort sweep: vary NSGA-II effort knobs under population-share (k=300)",
-            space="raw",
-            objectives=("mmd", "sinkhorn"),
-            constraint_mode="population_share",
-            k=300,
-            sweep_k=None,
-            n_reps=1,
-        ),
-
         # R13: VAE latent dimension sweep
         "R13": RunSpec(
             run_id="R13",
-            description="VAE latent dim sweep: D in {4,8,16,32,64,128}, MMD+Sinkhorn, pop-share constraint, k=300",
+            description="VAE latent dim sweep: D in {4,8,16,32,64,128}, MMD+Sinkhorn, pop-share constraint",
             space="vae",
             objectives=("mmd", "sinkhorn"),             # Bi-objective Pareto front
             constraint_mode="population_share",          # Population-per-state proportionality constraint
@@ -288,7 +312,7 @@ def get_run_specs() -> Dict[str, RunSpec]:
         # R14: PCA dimension sweep
         "R14": RunSpec(
             run_id="R14",
-            description="PCA dim sweep: D in {4,8,16,32,64,128}, MMD+Sinkhorn, pop-share constraint, k=300",
+            description="PCA dim sweep: D in {4,8,16,32,64,128}, MMD+Sinkhorn, pop-share constraint",
             space="pca",
             objectives=("mmd", "sinkhorn"),             # Bi-objective Pareto front
             constraint_mode="population_share",          # Population-per-state proportionality constraint
