@@ -1637,3 +1637,196 @@ class TablesMixin:
             paths.append(tex_path)
 
         return paths if len(paths) > 1 else (paths[0] if paths else "")
+
+    # ------------------------------------------------------------------
+    # Table: repr_timing.tex  (tab:repr-timing)
+    # ------------------------------------------------------------------
+
+    def tab_repr_timing(self, df: pd.DataFrame) -> str:
+        r"""Representation transfer timing table (``\label{tab:repr-timing}``).
+
+        Per the manuscript (Section VIII.G), this table reports the
+        computational cost of optimising in different representation
+        spaces: raw, PCA, and VAE (mean).
+
+        Columns:
+          Opt. space | dim. $p$ | solver time (s) | total time (s)
+
+        Data is extracted from the ``wall_clock_*_s`` columns in the
+        results CSV for R1 (raw), R8 (PCA), and R9 (VAE) at k=300.
+        If wall-clock columns are unavailable, the table is populated
+        from ``wall_clock.json`` files if present.
+
+        Returns
+        -------
+        str
+            Path to the generated ``.tex`` file.
+        """
+        d = self._filter_k300(df)
+        if d.empty:
+            # Emit template so LaTeX compiles
+            return self._emit_repr_timing_template()
+
+        # Run configurations and their representation dimensions
+        configs = [
+            ("R1", "Raw"),
+            ("R8", "PCA"),
+            ("R9", "VAE-mean"),
+        ]
+
+        # Try to resolve dimensions from constants
+        try:
+            from ..config.constants import D_FEATURES, VAE_LATENT_DIM, KPCA_COMPONENTS
+            dim_map = {"R1": D_FEATURES, "R8": KPCA_COMPONENTS, "R9": VAE_LATENT_DIM}
+        except ImportError:
+            dim_map = {"R1": "---", "R8": "---", "R9": "---"}
+
+        # Discover timing columns
+        solver_col = None
+        for cand in ["wall_clock_solver_s", "wall_clock_nsga2_s",
+                      "wall_clock_optimization_s"]:
+            if cand in d.columns:
+                solver_col = cand
+                break
+
+        total_col = "wall_clock_s" if "wall_clock_s" in d.columns else None
+
+        # If no timing columns in the DF, try loading from wall_clock.json files
+        if total_col is None:
+            json_timing = self._load_wall_clock_jsons()
+            if json_timing:
+                return self._emit_repr_timing_from_json(json_timing, dim_map)
+
+        if total_col is None:
+            return self._emit_repr_timing_template()
+
+        # ---- Gather per-config timing ----
+        rows_data = []
+        for run_pattern, space_label in configs:
+            sub = d[d["run_id"].astype(str).str.contains(run_pattern)]
+            if sub.empty:
+                continue
+
+            dim_val = dim_map.get(run_pattern, "---")
+
+            # Solver time: use phase-specific column if available
+            if solver_col and solver_col in sub.columns:
+                solver_s = float(sub[solver_col].mean())
+            else:
+                solver_s = np.nan
+
+            # Total time
+            if total_col in sub.columns:
+                total_s = float(sub[total_col].mean())
+            else:
+                total_s = np.nan
+
+            rows_data.append({
+                "space": space_label,
+                "dim": str(dim_val),
+                "solver_s": solver_s,
+                "total_s": total_s,
+            })
+
+        if not rows_data:
+            return self._emit_repr_timing_template()
+
+        return self._emit_repr_timing_latex(rows_data)
+
+    def _load_wall_clock_jsons(self) -> dict:
+        """Load wall_clock.json files from runs for R1, R8, R9."""
+        import json as _json
+        timing = {}
+        for run_pattern in ["R1", "R8", "R9"]:
+            json_files = glob.glob(
+                os.path.join(self.runs_root, f"{run_pattern}*",
+                             "rep*", "results", "wall_clock.json"),
+            )
+            if json_files:
+                try:
+                    with open(json_files[0]) as f:
+                        timing[run_pattern] = _json.load(f)
+                except Exception:
+                    pass
+        return timing
+
+    def _emit_repr_timing_from_json(self, json_timing: dict,
+                                     dim_map: dict) -> str:
+        """Build repr-timing table from wall_clock.json data."""
+        label_map = {"R1": "Raw", "R8": "PCA", "R9": "VAE-mean"}
+        rows_data = []
+        for rid in ["R1", "R8", "R9"]:
+            if rid not in json_timing:
+                continue
+            t = json_timing[rid]
+            solver_s = t.get("wall_clock_solver_s",
+                             t.get("wall_clock_nsga2_s",
+                                   t.get("wall_clock_optimization_s", np.nan)))
+            total_s = t.get("wall_clock_total_s", np.nan)
+            rows_data.append({
+                "space": label_map[rid],
+                "dim": str(dim_map.get(rid, "---")),
+                "solver_s": float(solver_s) if solver_s is not None else np.nan,
+                "total_s": float(total_s) if total_s is not None else np.nan,
+            })
+        if not rows_data:
+            return self._emit_repr_timing_template()
+        return self._emit_repr_timing_latex(rows_data)
+
+    def _emit_repr_timing_latex(self, rows_data: list) -> str:
+        """Emit the repr-timing LaTeX table from collected row data."""
+        lines = [
+            r"\begin{table}[htbp]",
+            r"\centering",
+            r"\caption{Representation transfer timing at $k=300$: "
+            r"wall-clock cost of optimising in different spaces.}",
+            r"\label{tab:repr-timing}",
+            r"\begin{tabular}{l c c c}",
+            r"\toprule",
+            r"Opt.\ space & dim.\ $p$ & solver time (s) & total time (s) \\",
+            r"\midrule",
+        ]
+        csv_rows = []
+        for row in rows_data:
+            solver_str = self._fmt(row["solver_s"], 1) if np.isfinite(
+                row["solver_s"]) else "---"
+            total_str = self._fmt(row["total_s"], 1) if np.isfinite(
+                row["total_s"]) else "---"
+            lines.append(
+                f"{row['space']} & {row['dim']} & "
+                f"{solver_str} & {total_str}" + r" \\"
+            )
+            csv_rows.append(row)
+        lines.extend([r"\bottomrule", r"\end{tabular}", r"\end{table}"])
+
+        path = os.path.join(self.tab_dir, "repr_timing.tex")
+        with open(path, "w") as f:
+            f.write("\n".join(lines))
+
+        csv_path = os.path.join(self.tab_dir, "repr_timing.csv")
+        pd.DataFrame(csv_rows).to_csv(csv_path, index=False, float_format="%.1f")
+        return path
+
+    def _emit_repr_timing_template(self) -> str:
+        """Emit a compilable template for repr-timing when no data is available."""
+        lines = [
+            r"\begin{table}[htbp]",
+            r"\centering",
+            r"\caption{Representation transfer timing at $k=300$: "
+            r"wall-clock cost of optimising in different spaces.}",
+            r"\label{tab:repr-timing}",
+            r"\begin{tabular}{l c c c}",
+            r"\toprule",
+            r"Opt.\ space & dim.\ $p$ & solver time (s) & total time (s) \\",
+            r"\midrule",
+            r"Raw & --- & --- & --- \\",
+            r"PCA & --- & --- & --- \\",
+            r"VAE-mean & --- & --- & --- \\",
+            r"\bottomrule",
+            r"\end{tabular}",
+            r"\end{table}",
+        ]
+        path = os.path.join(self.tab_dir, "repr_timing.tex")
+        with open(path, "w") as f:
+            f.write("\n".join(lines))
+        return path

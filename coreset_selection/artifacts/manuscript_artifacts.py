@@ -1,38 +1,35 @@
-r"""Manuscript-aligned artifact generator (Phase 8 + Phase 9 + Phase 10 + Phase 11 compliant).
+r"""Manuscript-aligned artifact generator.
 
 Produces ALL figures and tables referenced in the manuscript plus
 complementary analyses for Section VIII (Results and Analysis).
 
-Phase 8 ensures the four manuscript-referenced figures comply with:
-- IEEE column width conventions (single-col ~3.5 in, double-col ~7 in).
+Manuscript Figures (8, directly referenced via \includegraphics):
+  Fig 1: kl_floor_vs_k.pdf               — KL feasibility floor (Sec. VIII.A)
+  Fig 2: geo_ablation_tradeoff_scatter.pdf — Geographic ablation (Sec. VIII.B)
+  Fig 3: distortion_cardinality_R1.pdf    — Raw-space metrics vs k (Sec. VIII.C)
+  Fig 4: krr_worst_state_rmse_vs_k.pdf    — Worst-state RMSE equity (Sec. VIII.D)
+  Fig 5: regional_validity_k300.pdf       — Regional KPI validity (Sec. VIII.D)
+  Fig 6: baseline_comparison_grouped.pdf  — Baseline comparison (Sec. VIII.E)
+  Fig 7: representation_transfer_bars.pdf — Representation transfer (Sec. VIII.G)
+  Fig 8: objective_metric_alignment_heatmap.pdf — Obj-metric Spearman (Sec. VIII.K)
+
+Manuscript Tables (6, directly referenced via \label):
+  Table I:   exp_settings.tex             (tab:exp-settings)
+  Table II:  run_matrix.tex               (tab:run-matrix)
+  Table III: r1_by_k.tex                  (tab:r1-by-k)
+  Table IV:  repr_timing.tex              (tab:repr-timing)
+  Table V:   proxy_stability.tex          (tab:proxy-stability)
+  Table VI:  krr_multitask_k300.tex       (tab:krr-multitask-k300)
+
+Plus ~15 complementary figures (Pareto fronts, boxplots, heatmaps,
+geographic choropleth maps) and ~12 complementary tables for
+narrative-strengthening and reviewer defense.
+
+IEEE compliance:
+- Column widths: single-col ~3.5 in, double-col ~7 in.
 - Font sizes: >= 8 pt for annotations, >= 10 pt for axis labels.
-- Consistent grid, spine removal, and plot style.
-- Correct data loading paths and fallback logic.
-
-Phase 9 ensures the five manuscript-referenced tables comply with:
-- Table I  (exp_settings.tex):       Component | Setting layout; all values
-                                     sourced from config/constants.py.
-- Table II (run_matrix.tex):         ID | k | Opt. repr | Constraints |
-                                     Objectives | Seeds | Purpose; sourced
-                                     from config/run_specs.py.
-- Table III (r1_by_k.tex):           k | e_Nys | e_kPCA | RMSE(4G) | RMSE(5G).
-                                     Multi-seed: mean envelope across seeds.
-- Table IV (proxy_stability.tex):    Three sections (RFF sweep, anchor sweep,
-                                     cross-representation); Spearman rho values.
-- Table V  (krr_multitask_k300.tex): 10 coverage targets x 3 columns
-                                     (R1 knee, R9 knee, Best pool); best
-                                     values bolded.  R9 uses VAE-mean
-                                     representation.
-
-Phase 10a introduces enhanced narrative-strengthening figures (Figs N1-N6)
-that go beyond the 4 manuscript-referenced figures to pre-empt likely
-reviewer concerns and strengthen the empirical narrative.
-
-Phase 10b (Figs N7-N12): New/enhanced narrative-strengthening figures.
-
-Phase 11 (Tables N1-N9): New/enhanced narrative-strengthening tables.
-
-Phase 12 (Figs N13-N17): Geographic choropleth map figures.
+- Consistent grid, spine removal, and publication-quality style.
+- 300 dpi saved output.
 
 Implementation split across mixin modules for maintainability:
 - _ma_helpers.py:          Shared helpers (_set_style, _save)
@@ -41,7 +38,7 @@ Implementation split across mixin modules for maintainability:
 - _ma_pareto_figs.py:      Pareto front figure methods
 - _ma_metric_figs.py:      Metric/distortion figure methods
 - _ma_comparison_figs.py:  Comparison/diagnostic figure methods
-- _ma_tables.py:           Table generation methods
+- _ma_tables.py:           Table generation methods (incl. repr_timing)
 """
 
 from __future__ import annotations
