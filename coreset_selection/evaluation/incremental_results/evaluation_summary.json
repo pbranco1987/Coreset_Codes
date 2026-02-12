@@ -1,0 +1,19 @@
+{
+  "n_methods": 5,
+  "n_replicates": 3,
+  "k": 300,
+  "methods": [
+    "U",
+    "KM",
+    "KKN",
+    "SKKN",
+    "Pareto"
+  ],
+  "summary_avg_rank": {
+    "KKN": NaN,
+    "KM": NaN,
+    "Pareto": NaN,
+    "SKKN": NaN,
+    "U": NaN
+  }
+}

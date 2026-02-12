@@ -1,0 +1,81 @@
+"""Internal helpers for the BaselineVariantGenerator.
+
+Extracted from variant_generator.py. Contains the method registry data
+structures, variant pair definitions, and the BaselineResult dataclass.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional, Tuple
+
+import numpy as np
+
+
+# -----------------------------------------------------------------------
+# Registry: canonical name -> (exact-k factory, quota factory | None)
+# -----------------------------------------------------------------------
+
+# Mapping from short method code to (human-readable name, variant_type)
+METHOD_REGISTRY: Dict[str, Dict[str, str]] = {
+    # exact-k baselines
+    "U":    {"full_name": "Uniform",              "regime": "exactk"},
+    "KM":   {"full_name": "K-means reps",         "regime": "exactk"},
+    "KH":   {"full_name": "Kernel herding",       "regime": "exactk"},
+    "FF":   {"full_name": "Farthest-first",       "regime": "exactk"},
+    "RLS":  {"full_name": "Ridge leverage",        "regime": "exactk"},
+    "DPP":  {"full_name": "k-DPP",                "regime": "exactk"},
+    "KT":   {"full_name": "Kernel thinning",      "regime": "exactk"},
+    "KKN":  {"full_name": "KKM-Nystrom",          "regime": "exactk"},
+    # quota-matched baselines (S-prefix)
+    "SU":   {"full_name": "Uniform (quota)",       "regime": "quota"},
+    "SKM":  {"full_name": "K-means reps (quota)",  "regime": "quota"},
+    "SKH":  {"full_name": "Kernel herding (quota)","regime": "quota"},
+    "SFF":  {"full_name": "Farthest-first (quota)","regime": "quota"},
+    "SRLS": {"full_name": "Ridge leverage (quota)","regime": "quota"},
+    "SDPP": {"full_name": "k-DPP (quota)",         "regime": "quota"},
+    "SKT":  {"full_name": "Kernel thinning (quota)","regime": "quota"},
+    "SKKN": {"full_name": "KKM-Nystrom (quota)",   "regime": "quota"},
+}
+
+# Pairs of (exact-k code, quota-matched code) for structured comparison
+VARIANT_PAIRS: List[Tuple[str, str]] = [
+    ("U",   "SU"),
+    ("KM",  "SKM"),
+    ("KH",  "SKH"),
+    ("FF",  "SFF"),
+    ("RLS", "SRLS"),
+    ("DPP", "SDPP"),
+    ("KT",  "SKT"),
+    ("KKN", "SKKN"),
+]
+
+
+@dataclass
+class BaselineResult:
+    """Container for a single baseline run result."""
+
+    method: str
+    full_name: str
+    regime: str          # "exactk" or "quota"
+    space: str           # "raw", "vae", "pca"
+    k: int
+    selected_indices: np.ndarray
+    wall_time_s: float
+    quota_vector: Optional[np.ndarray] = None
+    metrics: Dict[str, Any] = field(default_factory=dict)
+
+    def to_row(self) -> Dict[str, Any]:
+        """Flatten to a dict suitable for CSV serialization."""
+        row: Dict[str, Any] = {
+            "method": self.method,
+            "full_name": self.full_name,
+            "regime": self.regime,
+            "space": self.space,
+            "k": self.k,
+            "k_actual": len(self.selected_indices),
+            "wall_time_s": round(self.wall_time_s, 4),
+            "quota_vector_used": self.quota_vector is not None,
+        }
+        row.update(self.metrics)
+        return row

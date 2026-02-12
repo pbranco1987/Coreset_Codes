@@ -1,0 +1,26 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m pytest:*)",
+      "Bash(where:*)",
+      "Bash(python3:*)",
+      "Bash(dir:*)",
+      "Bash(cmd /c \"where /r C:\\\\Users\\\\pbranco python.exe 2>nul\")",
+      "Bash(cmd /c \"set PATH\")",
+      "Bash(cmd /c \"echo %PATH%\")",
+      "Bash(powershell:*)",
+      "Bash(findstr:*)",
+      "Bash(while read f)",
+      "Bash(do python3 -m py_compile \"$f\")",
+      "Bash(done)",
+      "Bash(find:*)",
+      "Bash(do python3 -c \" import re with open\\(''$f'', ''r''\\) as file: for i, line in enumerate\\(file, 1\\): # Look for f-string with nested literal quotes if re.search\\(r''f[\"\"\\\\'']\\\\\\([^\\)]*\\\\{[^}]*[\"\"\\\\'']\\\\w*[^}]*\\\\}[^\\)]*[\"\"\\\\'']\\\\\\)'', line\\): print\\(f''$f:{i}:{line.strip\\(\\)}''\\) elif re.search\\(r''f[\"\"\\\\'']\\\\{[^}]*[\"\"\\\\'']\\\\w*[^}]*\\\\}'', line\\): print\\(f''$f:{i}:{line.strip\\(\\)}''\\) \")",
+      "Bash(python:*)",
+      "Bash(cmd /c \"dir /ad /b C:\\\\Users\\\\pbranco\\\\Downloads\\\\coreset*\")",
+      "Bash(cmd /c \"cd /d C:\\\\Users\\\\pbranco\\\\Downloads && C:\\\\Windows\\\\System32\\\\tar.exe -a -cf coreset_selection_phase3_fixed.zip --exclude=__pycache__ --exclude=*.egg-info coreset_selection_categorical_numeric\")",
+      "Bash(cmd /c \"dir C:\\\\Users\\\\pbranco\\\\Downloads\\\\coreset_selection_phase3_fixed.zip\")",
+      "Bash(cmd /c \"if exist C:\\\\Users\\\\pbranco\\\\Downloads\\\\coreset_selection_phase3_fixed.zip \\(echo EXISTS & dir C:\\\\Users\\\\pbranco\\\\Downloads\\\\coreset_selection_phase3_fixed.zip\\) else \\(echo NOT FOUND\\)\")",
+      "Bash(cd:*)"
+    ]
+  }
+}

@@ -1,0 +1,113 @@
+method,regime,target,group,n_test,rmse,seed
+Uniform,unconstrained,target_0,0,15,0.7065917607698908,2042
+Uniform,unconstrained,target_0,2,14,0.678999730797468,2042
+Uniform,unconstrained,target_0,3,11,0.6554455704244443,2042
+Uniform,unconstrained,target_0,4,17,0.5763136322471569,2042
+Uniform,unconstrained,target_0,5,4,0.9392108656541307,2042
+Uniform,unconstrained,target_0,6,15,0.5179012793184655,2042
+Uniform,unconstrained,target_0,7,23,0.6816121888762902,2042
+Uniform,unconstrained,target_1,0,15,0.7281630821463314,2042
+Uniform,unconstrained,target_1,2,14,0.7427376674520373,2042
+Uniform,unconstrained,target_1,3,11,0.7073941344393175,2042
+Uniform,unconstrained,target_1,4,17,0.5562728568689329,2042
+Uniform,unconstrained,target_1,5,4,0.9560927061477356,2042
+Uniform,unconstrained,target_1,6,15,1.0470719926450314,2042
+Uniform,unconstrained,target_1,7,23,0.7836733815570277,2042
+K-means,unconstrained,target_0,0,15,0.840555966088625,2042
+K-means,unconstrained,target_0,2,14,0.7009853791493974,2042
+K-means,unconstrained,target_0,3,11,0.8513613197755413,2042
+K-means,unconstrained,target_0,4,17,0.5668196576043265,2042
+K-means,unconstrained,target_0,5,4,0.9896366785441607,2042
+K-means,unconstrained,target_0,6,15,0.859974819578552,2042
+K-means,unconstrained,target_0,7,23,0.734286856707663,2042
+K-means,unconstrained,target_1,0,15,0.7483540225732803,2042
+K-means,unconstrained,target_1,2,14,0.6737051351155738,2042
+K-means,unconstrained,target_1,3,11,0.6445572245897587,2042
+K-means,unconstrained,target_1,4,17,0.9494403354917509,2042
+K-means,unconstrained,target_1,5,4,0.5557028424774862,2042
+K-means,unconstrained,target_1,6,15,0.9108803966194022,2042
+K-means,unconstrained,target_1,7,23,0.6854928881863613,2042
+Farthest-first,unconstrained,target_0,0,15,0.992939843137383,2042
+Farthest-first,unconstrained,target_0,2,14,0.7801630592467899,2042
+Farthest-first,unconstrained,target_0,3,11,0.8703940567313332,2042
+Farthest-first,unconstrained,target_0,4,17,0.867385026125271,2042
+Farthest-first,unconstrained,target_0,5,4,1.031486627840804,2042
+Farthest-first,unconstrained,target_0,6,15,0.6098357494841515,2042
+Farthest-first,unconstrained,target_0,7,23,0.7965887859375804,2042
+Farthest-first,unconstrained,target_1,0,15,0.7899428450432331,2042
+Farthest-first,unconstrained,target_1,2,14,0.6089114678634613,2042
+Farthest-first,unconstrained,target_1,3,11,0.6246370970345043,2042
+Farthest-first,unconstrained,target_1,4,17,0.6871987469632894,2042
+Farthest-first,unconstrained,target_1,5,4,0.7109944583591218,2042
+Farthest-first,unconstrained,target_1,6,15,0.7382455928484861,2042
+Farthest-first,unconstrained,target_1,7,23,0.6767335606247105,2042
+KKM-Nystrom,unconstrained,target_0,0,15,0.9583897367830359,2042
+KKM-Nystrom,unconstrained,target_0,2,14,0.7238549950379903,2042
+KKM-Nystrom,unconstrained,target_0,3,11,0.6961915461572799,2042
+KKM-Nystrom,unconstrained,target_0,4,17,0.5711294543953632,2042
+KKM-Nystrom,unconstrained,target_0,5,4,1.0090950306216286,2042
+KKM-Nystrom,unconstrained,target_0,6,15,0.7539602373846078,2042
+KKM-Nystrom,unconstrained,target_0,7,23,0.7449595535362985,2042
+KKM-Nystrom,unconstrained,target_1,0,15,0.738753441319632,2042
+KKM-Nystrom,unconstrained,target_1,2,14,0.8498499070453439,2042
+KKM-Nystrom,unconstrained,target_1,3,11,0.6427677726561846,2042
+KKM-Nystrom,unconstrained,target_1,4,17,0.5705128274450169,2042
+KKM-Nystrom,unconstrained,target_1,5,4,0.7034042769418197,2042
+KKM-Nystrom,unconstrained,target_1,6,15,0.9185373780166061,2042
+KKM-Nystrom,unconstrained,target_1,7,23,0.692564912036356,2042
+KKM-Nystrom (quota),quota,target_0,0,15,0.8959189185702744,2042
+KKM-Nystrom (quota),quota,target_0,2,14,0.530124244001769,2042
+KKM-Nystrom (quota),quota,target_0,3,11,0.8014069436517299,2042
+KKM-Nystrom (quota),quota,target_0,4,17,0.6745457908375013,2042
+KKM-Nystrom (quota),quota,target_0,5,4,0.9602364910938546,2042
+KKM-Nystrom (quota),quota,target_0,6,15,0.7041110986027788,2042
+KKM-Nystrom (quota),quota,target_0,7,23,0.7755710795991452,2042
+KKM-Nystrom (quota),quota,target_1,0,15,0.6650810255918838,2042
+KKM-Nystrom (quota),quota,target_1,2,14,0.7156718644548512,2042
+KKM-Nystrom (quota),quota,target_1,3,11,0.6971341722188475,2042
+KKM-Nystrom (quota),quota,target_1,4,17,0.5668901728456439,2042
+KKM-Nystrom (quota),quota,target_1,5,4,0.7663930586637396,2042
+KKM-Nystrom (quota),quota,target_1,6,15,1.1100778155143105,2042
+KKM-Nystrom (quota),quota,target_1,7,23,0.6302486106205013,2042
+Ridge-leverage,unconstrained,target_0,0,15,0.8171184676062923,2042
+Ridge-leverage,unconstrained,target_0,2,14,0.8459246049190329,2042
+Ridge-leverage,unconstrained,target_0,3,11,0.8350022074695305,2042
+Ridge-leverage,unconstrained,target_0,4,17,0.5664221555648972,2042
+Ridge-leverage,unconstrained,target_0,5,4,0.859557581181778,2042
+Ridge-leverage,unconstrained,target_0,6,15,0.6728336644487949,2042
+Ridge-leverage,unconstrained,target_0,7,23,0.7677038705513941,2042
+Ridge-leverage,unconstrained,target_1,0,15,0.8926117179276343,2042
+Ridge-leverage,unconstrained,target_1,2,14,0.8775921342714027,2042
+Ridge-leverage,unconstrained,target_1,3,11,0.9834090736055585,2042
+Ridge-leverage,unconstrained,target_1,4,17,0.6225172558415435,2042
+Ridge-leverage,unconstrained,target_1,5,4,0.6584960843077942,2042
+Ridge-leverage,unconstrained,target_1,6,15,0.983863150634504,2042
+Ridge-leverage,unconstrained,target_1,7,23,0.7351361871493374,2042
+Uniform (quota),quota,target_0,0,15,0.7284789842512911,2042
+Uniform (quota),quota,target_0,2,14,0.6720703401933402,2042
+Uniform (quota),quota,target_0,3,11,0.8307287105686264,2042
+Uniform (quota),quota,target_0,4,17,0.5772417532459718,2042
+Uniform (quota),quota,target_0,5,4,0.9647140799600203,2042
+Uniform (quota),quota,target_0,6,15,0.7888668921297284,2042
+Uniform (quota),quota,target_0,7,23,0.663665726682729,2042
+Uniform (quota),quota,target_1,0,15,0.8056647487193129,2042
+Uniform (quota),quota,target_1,2,14,0.6407934454785068,2042
+Uniform (quota),quota,target_1,3,11,0.697983569103176,2042
+Uniform (quota),quota,target_1,4,17,0.5494590332245851,2042
+Uniform (quota),quota,target_1,5,4,0.7523014249255947,2042
+Uniform (quota),quota,target_1,6,15,0.8464480095248674,2042
+Uniform (quota),quota,target_1,7,23,0.6896146028774917,2042
+NSGA-II (Pareto-validated),pareto_validated,target_0,0,15,0.789188426934866,2042
+NSGA-II (Pareto-validated),pareto_validated,target_0,2,14,0.6369220634928975,2042
+NSGA-II (Pareto-validated),pareto_validated,target_0,3,11,0.6451785077592191,2042
+NSGA-II (Pareto-validated),pareto_validated,target_0,4,17,0.6018570525385012,2042
+NSGA-II (Pareto-validated),pareto_validated,target_0,5,4,1.0294566973694057,2042
+NSGA-II (Pareto-validated),pareto_validated,target_0,6,15,0.569156320008692,2042
+NSGA-II (Pareto-validated),pareto_validated,target_0,7,23,0.706562834347033,2042
+NSGA-II (Pareto-validated),pareto_validated,target_1,0,15,0.9612023024306474,2042
+NSGA-II (Pareto-validated),pareto_validated,target_1,2,14,0.7462336683472591,2042
+NSGA-II (Pareto-validated),pareto_validated,target_1,3,11,0.7572731755263163,2042
+NSGA-II (Pareto-validated),pareto_validated,target_1,4,17,0.7077868693056185,2042
+NSGA-II (Pareto-validated),pareto_validated,target_1,5,4,0.6766349170384225,2042
+NSGA-II (Pareto-validated),pareto_validated,target_1,6,15,1.0507960866625066,2042
+NSGA-II (Pareto-validated),pareto_validated,target_1,7,23,0.7675880839076812,2042
