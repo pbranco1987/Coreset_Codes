@@ -449,9 +449,10 @@ class NSGA2VerboseLogger:
 
         elif self.verbose >= 3:
             # Full diagnostics
-            print(f"\n{'\u2550'*80}")
+            _bar = "\u2550" * 80
+            print(f"\n{_bar}")
             print(f"  GENERATION {gen+1:4d} / {self.n_gen}")
-            print(f"{'\u2550'*80}")
+            print(f"{_bar}")
             print(f"\n  TIMING:")
             print(f"    \u2022 Generation time:   {stats.gen_time_sec:8.3f} s")
             print(f"    \u2022 Cumulative time:   {stats.cumulative_time_sec:8.1f} s")
