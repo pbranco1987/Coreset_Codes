@@ -21,7 +21,7 @@ Notation (manuscript):
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 import numpy as np
 
@@ -447,9 +447,9 @@ class RawSpaceEvaluator:
             out[f"overall_r2{suffix}"] = 1.0 - ss_res / max(ss_tot, 1e-30)
 
             # --- Per-state RMSE, MAE, R² ---
-            state_rmses: Dict[int, float] = {}
-            state_maes: Dict[int, float] = {}
-            state_r2s: Dict[int, float] = {}
+            state_rmses: Dict[Any, float] = {}
+            state_maes: Dict[Any, float] = {}
+            state_r2s: Dict[Any, float] = {}
             for g in unique_states:
                 mask_g = te_states == g
                 n_g = int(mask_g.sum())
@@ -457,11 +457,11 @@ class RawSpaceEvaluator:
                     continue
                 yt_g = yt_te[mask_g]
                 yh_g = y_hat_te[mask_g]
-                state_rmses[int(g)] = _rmse(yt_g, yh_g)
-                state_maes[int(g)] = float(np.mean(np.abs(yt_g - yh_g)))
+                state_rmses[g] = _rmse(yt_g, yh_g)
+                state_maes[g] = float(np.mean(np.abs(yt_g - yh_g)))
                 ss_res_g = float(np.sum((yt_g - yh_g) ** 2))
                 ss_tot_g = float(np.sum((yt_g - np.mean(yt_g)) ** 2))
-                state_r2s[int(g)] = 1.0 - ss_res_g / max(ss_tot_g, 1e-30)
+                state_r2s[g] = 1.0 - ss_res_g / max(ss_tot_g, 1e-30)
 
             # --- Aggregate per-state metrics ---
             if state_rmses:
