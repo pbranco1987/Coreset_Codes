@@ -363,10 +363,10 @@ EXTRA_REGRESSION_TARGET_NAMES = list(EXTRA_REGRESSION_TARGETS.keys())
 # Classification targets: binary and multiclass derived from data
 # Each value is (display_label, n_classes_description)
 CLASSIFICATION_TARGETS = {
-    # Binary (natural thresholds)
-    "has_5g":                  ("5G Presence", "binary"),
-    "has_fiber_backhaul":      ("Fiber Backhaul Presence", "binary"),
-    "has_high_speed_internet": ("High-Speed Internet", "binary"),
+    # Binary (balanced splits)
+    "concentrated_mobile_market": ("Concentrated Mobile Market (HHI≥0.25)", "binary"),
+    "high_fiber_backhaul":     ("High Fiber Backhaul (median-split)", "binary"),
+    "high_speed_broadband":    ("High-Speed Broadband (median-split)", "binary"),
     # 3-class (tercile-binned continuous columns)
     "urbanization_level":      ("Urbanization Level", "3-class"),
     "broadband_speed_tier":    ("Broadband Speed Tier", "3-class"),

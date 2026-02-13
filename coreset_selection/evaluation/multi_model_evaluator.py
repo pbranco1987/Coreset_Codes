@@ -9,7 +9,7 @@ Regression models are evaluated on coverage + extra regression targets.
 Classification models are evaluated on derived classification targets.
 
 Output key convention: ``{model}_{metric}_{target}``
-    e.g. ``rf_rmse_cov_area_4G``, ``knn_accuracy_has_5g``
+    e.g. ``rf_rmse_cov_area_4G``, ``knn_accuracy_concentrated_mobile_market``
 """
 
 from __future__ import annotations

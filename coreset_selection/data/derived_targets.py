@@ -142,8 +142,39 @@ def _quintile_bin(arr: np.ndarray) -> np.ndarray:
     return out
 
 
+def _validate_target(
+    name: str,
+    labels: np.ndarray,
+    min_class_frac: float = 0.05,
+) -> bool:
+    """Return True if every class has at least *min_class_frac* of the samples.
+
+    A target where the smallest class has <5 % of the data will almost
+    certainly produce single-class training sets when sub-sampling a
+    coreset of size k ≪ N, making downstream classification meaningless.
+    """
+    N = len(labels)
+    if N == 0:
+        return False
+    _, counts = np.unique(labels, return_counts=True)
+    smallest_frac = counts.min() / N
+    if smallest_frac < min_class_frac:
+        print(
+            f"[derived_targets] DROPPED '{name}': smallest class has "
+            f"{smallest_frac:.1%} of data (need ≥{min_class_frac:.0%}). "
+            f"Class distribution: {dict(zip(*np.unique(labels, return_counts=True)))}"
+        )
+        return False
+    return True
+
+
 def derive_classification_targets(df: pd.DataFrame) -> Dict[str, np.ndarray]:
     """Derive classification targets from raw DataFrame columns.
+
+    Every candidate target is validated for class balance before inclusion:
+    any class with <5 % of the samples is rejected, because coreset
+    sub-sampling (k ≪ N) would almost certainly produce single-class
+    training sets and make the downstream evaluation meaningless.
 
     Parameters
     ----------
@@ -154,62 +185,68 @@ def derive_classification_targets(df: pd.DataFrame) -> Dict[str, np.ndarray]:
     -------
     Dict[str, np.ndarray]
         Mapping ``{target_name: (N,) int64 array}``.
-        Targets whose source columns are absent are skipped with a warning.
+        Targets whose source columns are absent or that fail class-balance
+        validation are skipped with a printed message.
     """
     N = len(df)
-    out: Dict[str, np.ndarray] = {}
+    candidates: Dict[str, np.ndarray] = {}
 
     # ── Binary targets ──────────────────────────────────────────────
+    # All binary targets use median-split to guarantee ~50/50 balance,
+    # unless a domain-specific threshold is more meaningful AND safe.
 
-    # has_5g: any 5G area coverage > 0
-    col_5g = _find_column(df, "cov_pct_area_coberta__tec_5g__op_todas__2025_03")
-    if col_5g is None:
-        # Try shorter variant
-        for c in df.columns:
-            if "cov_pct_area_coberta" in c and "5g" in c.lower() and "op_todas" in c:
-                col_5g = c
-                break
-    if col_5g is not None:
-        vals = pd.to_numeric(df[col_5g], errors="coerce").fillna(0).to_numpy()
-        out["has_5g"] = (vals > 0).astype(np.int64)
+    # concentrated_mobile_market: HHI SMP ≥ 0.25 (Anatel regulatory threshold)
+    # HHI < 0.25 → competitive (0), HHI ≥ 0.25 → concentrated (1)
+    arr_hhi = _get_column(df, "HHI SMP_2024")
+    if arr_hhi is None:
+        arr_hhi = _get_column(df, "HHI_SMP_2024")
+    if arr_hhi is not None:
+        arr_hhi = np.nan_to_num(arr_hhi, nan=0.0)
+        candidates["concentrated_mobile_market"] = (arr_hhi >= 0.25).astype(np.int64)
     else:
-        print("[derived_targets] WARNING: cannot derive 'has_5g' — "
-              "no 5G coverage column found")
+        print("[derived_targets] WARNING: cannot derive 'concentrated_mobile_market' — "
+              "no HHI SMP column found")
 
-    # has_fiber_backhaul: pct_fibra_backhaul > 0
+    # has_fiber_backhaul: median-split on pct_fibra_backhaul
+    # (plain >0 threshold was potentially skewed)
     arr = _get_column(df, "pct_fibra_backhaul")
     if arr is not None:
-        out["has_fiber_backhaul"] = (arr > 0).astype(np.int64)
+        arr = np.nan_to_num(arr, nan=0.0)
+        median_val = np.median(arr[arr > 0]) if np.any(arr > 0) else 0.0
+        candidates["high_fiber_backhaul"] = (arr >= median_val).astype(np.int64)
     else:
-        print("[derived_targets] WARNING: cannot derive 'has_fiber_backhaul'")
+        print("[derived_targets] WARNING: cannot derive 'high_fiber_backhaul'")
 
-    # has_high_speed_internet: pct_agl_alta_velocidade > 50
+    # high_speed_broadband: median-split on pct_agl_alta_velocidade
+    # (the old >50 threshold was arbitrary and potentially imbalanced)
     arr = _get_column(df, "pct_agl_alta_velocidade")
     if arr is not None:
-        out["has_high_speed_internet"] = (np.nan_to_num(arr, nan=0.0) > 50).astype(np.int64)
+        arr = np.nan_to_num(arr, nan=0.0)
+        median_val = float(np.median(arr))
+        candidates["high_speed_broadband"] = (arr > median_val).astype(np.int64)
     else:
-        print("[derived_targets] WARNING: cannot derive 'has_high_speed_internet'")
+        print("[derived_targets] WARNING: cannot derive 'high_speed_broadband'")
 
     # ── 3-class targets (tercile-binned) ────────────────────────────
 
     # urbanization_level: from pct_urbano
     arr = _get_column(df, "pct_urbano")
     if arr is not None:
-        out["urbanization_level"] = _tercile_bin(np.nan_to_num(arr, nan=0.0))
+        candidates["urbanization_level"] = _tercile_bin(np.nan_to_num(arr, nan=0.0))
     else:
         print("[derived_targets] WARNING: cannot derive 'urbanization_level'")
 
     # broadband_speed_tier: from velocidade_mediana_mean
     arr = _get_column(df, "velocidade_mediana_mean")
     if arr is not None:
-        out["broadband_speed_tier"] = _tercile_bin(np.nan_to_num(arr, nan=0.0))
+        candidates["broadband_speed_tier"] = _tercile_bin(np.nan_to_num(arr, nan=0.0))
     else:
         print("[derived_targets] WARNING: cannot derive 'broadband_speed_tier'")
 
     # income_tier: from renda_media_mean
     arr = _get_column(df, "renda_media_mean")
     if arr is not None:
-        out["income_tier"] = _tercile_bin(np.nan_to_num(arr, nan=0.0))
+        candidates["income_tier"] = _tercile_bin(np.nan_to_num(arr, nan=0.0))
     else:
         print("[derived_targets] WARNING: cannot derive 'income_tier'")
 
@@ -227,7 +264,7 @@ def derive_classification_targets(df: pd.DataFrame) -> Dict[str, np.ndarray]:
             np.nan_to_num(c_hl, nan=0.0),
             np.nan_to_num(c_hh, nan=0.0),
         ], axis=1)  # (N, 4)
-        out["income_speed_class"] = np.argmax(quadrant, axis=1).astype(np.int64)
+        candidates["income_speed_class"] = np.argmax(quadrant, axis=1).astype(np.int64)
     else:
         print("[derived_targets] WARNING: cannot derive 'income_speed_class' — "
               "missing pct_cat_* columns")
@@ -241,7 +278,7 @@ def derive_classification_targets(df: pd.DataFrame) -> Dict[str, np.ndarray]:
         if arr is not None:
             break
     if arr is not None:
-        out["mobile_penetration_tier"] = _quartile_bin(np.nan_to_num(arr, nan=0.0))
+        candidates["mobile_penetration_tier"] = _quartile_bin(np.nan_to_num(arr, nan=0.0))
     else:
         print("[derived_targets] WARNING: cannot derive 'mobile_penetration_tier'")
 
@@ -250,15 +287,26 @@ def derive_classification_targets(df: pd.DataFrame) -> Dict[str, np.ndarray]:
     # infra_density_tier: from n_estacoes_smp
     arr = _get_column(df, "n_estacoes_smp")
     if arr is not None:
-        out["infra_density_tier"] = _quintile_bin(np.nan_to_num(arr, nan=0.0))
+        candidates["infra_density_tier"] = _quintile_bin(np.nan_to_num(arr, nan=0.0))
     else:
         print("[derived_targets] WARNING: cannot derive 'infra_density_tier'")
 
     # road_coverage_4g_tier: from rod_pct_cob_todas_4g
     arr = _get_column(df, "rod_pct_cob_todas_4g")
     if arr is not None:
-        out["road_coverage_4g_tier"] = _quintile_bin(np.nan_to_num(arr, nan=0.0))
+        candidates["road_coverage_4g_tier"] = _quintile_bin(np.nan_to_num(arr, nan=0.0))
     else:
         print("[derived_targets] WARNING: cannot derive 'road_coverage_4g_tier'")
+
+    # ── Validate all candidates ─────────────────────────────────────
+    # Drop any target where the smallest class has <5% of samples.
+    out: Dict[str, np.ndarray] = {}
+    for name, labels in candidates.items():
+        if _validate_target(name, labels):
+            out[name] = labels
+
+    n_dropped = len(candidates) - len(out)
+    print(f"[derived_targets] {len(out)} classification targets accepted"
+          f"{f', {n_dropped} dropped due to class imbalance' if n_dropped else ''}")
 
     return out
