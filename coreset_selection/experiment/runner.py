@@ -237,10 +237,10 @@ class ExperimentRunner(R0Mixin, DiagnosticsMixin, EffortMixin, EvalMixin):
             self.saver.save_config(cfg)
 
             # ------------------------------------------------------------
-            # R11 (or legacy R7): Post-hoc diagnostics
+            # R11: Post-hoc diagnostics
             #   Proxy stability (Table IV) + objective–metric alignment (Fig 4)
             # ------------------------------------------------------------
-            if base_run_id in ("R11", "R7"):
+            if base_run_id == "R11":
                 _tp = self._phase_start()
                 result = self._run_r7_diagnostics(assets=assets, seed=rep_seed)
                 self._phase_end("diagnostics", _tp)
