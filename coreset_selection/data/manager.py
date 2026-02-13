@@ -158,6 +158,7 @@ class DataManager:
         self._feature_types = list(data.feature_types)
         self._category_maps = dict(data.category_maps)
         self.df = df
+        self._raw_df = data.raw_df  # Full DataFrame before feature/target separation
         self._y_4G = data.y_4G
         self._y_5G = data.y_5G
         self._extra_targets: Dict[str, np.ndarray] = dict(data.extra_targets)

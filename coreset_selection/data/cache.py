@@ -122,8 +122,10 @@ def build_replicate_cache(
             extra_targets_dict.pop("cov_area_5G", None)
 
             # Derived downstream targets (extra regression + classification)
-            # Must be extracted from the raw DataFrame before feature removal.
-            raw_df = getattr(data_manager, "df", None)
+            # Must use the FULL raw DataFrame (before feature/target separation)
+            # because columns like HHI, pct_fibra_backhaul, velocidade_mediana,
+            # etc. are classified as TARGET by the schema and stripped from df.
+            raw_df = getattr(data_manager, "_raw_df", None) or getattr(data_manager, "df", None)
             derived_extra_reg: dict = {}
             derived_cls: dict = {}
             if raw_df is not None:

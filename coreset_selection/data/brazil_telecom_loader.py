@@ -903,6 +903,7 @@ class BrazilTelecomDataLoader:
             extra_targets=extra_targets,
             feature_types=final_feature_types,
             category_maps=category_maps,
+            raw_df=df_main,
         )
 
     def _find_column(self, df: pd.DataFrame, candidates: List[str]) -> Optional[str]:

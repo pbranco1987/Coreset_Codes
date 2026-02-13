@@ -43,3 +43,4 @@ class BrazilTelecomData:
     extra_targets: Dict[str, np.ndarray] = field(default_factory=dict)
     feature_types: List[str] = field(default_factory=list)
     category_maps: Dict[str, Dict] = field(default_factory=dict)
+    raw_df: object = None  # Full pre-feature-selection DataFrame (for derived targets)
