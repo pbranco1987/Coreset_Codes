@@ -125,7 +125,9 @@ def build_replicate_cache(
             # Must use the FULL raw DataFrame (before feature/target separation)
             # because columns like HHI, pct_fibra_backhaul, velocidade_mediana,
             # etc. are classified as TARGET by the schema and stripped from df.
-            raw_df = getattr(data_manager, "_raw_df", None) or getattr(data_manager, "df", None)
+            raw_df = getattr(data_manager, "_raw_df", None)
+            if raw_df is None:
+                raw_df = getattr(data_manager, "df", None)
             derived_extra_reg: dict = {}
             derived_cls: dict = {}
             if raw_df is not None:
