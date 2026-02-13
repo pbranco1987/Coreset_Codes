@@ -742,7 +742,7 @@ class BrazilTelecomDataLoader:
         if all_excluded:
             excluded_df = df_main[['codigo_ibge'] + all_excluded].copy()
             excl_path = os.path.join(
-                os.path.dirname(self.files.smp_main_path),
+                self.data_dir,
                 "excluded_target_columns.csv",
             )
             excluded_df.to_csv(excl_path, index=False)
