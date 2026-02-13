@@ -489,11 +489,13 @@ def cmd_scenario(args: argparse.Namespace) -> int:
 
         src = str(getattr(args, "source_run", "R1"))
         src_space = str(getattr(args, "source_space", "vae"))
-        k_for_r7 = getattr(args, "k", None)
-        if k_for_r7 is None:
+        # -k is stored as k_single by argparse; k_values is the merged form
+        _k_raw = getattr(args, "k_single", None) or getattr(args, "k_values", None)
+        if _k_raw is None:
             print("[scenario] ERROR: R6 requires --k to be specified.")
             return 1
-        k_for_r7 = int(k_for_r7)
+        # Take the first value if comma-separated list
+        k_for_r7 = int(str(_k_raw).split(",")[0])
 
         # Set environment overrides for the underlying runner.
         os.environ["CORESET_R6_SOURCE_RUN"] = src
