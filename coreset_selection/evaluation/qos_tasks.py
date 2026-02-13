@@ -486,26 +486,43 @@ def _fit_constrained_ols(
 ) -> Tuple[np.ndarray, float]:
     """Fit constrained OLS where weights sum to 1 and are bounded.
 
+    When D >> N (more features than samples), PCA is applied first to
+    reduce dimensionality to min(N-1, 50) components.  The constrained
+    weights are then fitted in the reduced space and projected back to
+    the original feature space.
+
     Uses SLSQP optimization.  Returns (coef, intercept=0).
     """
     import scipy.optimize as sco
+    from sklearn.decomposition import PCA
 
-    n_features = X_train.shape[1]
+    n_samples, n_features = X_train.shape
 
-    # Feasibility check — silently relax bounds when D >> k
-    if n_features * epsilon > 1.0 + 1e-9:
-        epsilon = max(1e-6, 0.5 / n_features)
-    if max_weight * n_features < 1.0 - 1e-9:
-        max_weight = min(1.0, 2.0 / n_features)
+    # When D >> N, reduce to a tractable number of components
+    pca = None
+    max_components = min(n_samples - 1, 50)
+    if n_features > max_components:
+        pca = PCA(n_components=max_components)
+        X_reduced = pca.fit_transform(X_train)
+        n_opt = max_components
+    else:
+        X_reduced = X_train
+        n_opt = n_features
+
+    # Feasibility check — silently relax bounds when needed
+    if n_opt * epsilon > 1.0 + 1e-9:
+        epsilon = max(1e-6, 0.5 / n_opt)
+    if max_weight * n_opt < 1.0 - 1e-9:
+        max_weight = min(1.0, 2.0 / n_opt)
 
     def objective(beta: np.ndarray) -> float:
-        mse = float(np.mean((y_train - X_train @ beta) ** 2))
+        mse = float(np.mean((y_train - X_reduced @ beta) ** 2))
         diversity = -variance_strength * float(np.var(beta))
         return mse + diversity
 
     constraints = {"type": "eq", "fun": lambda beta: np.sum(beta) - 1.0}
     bounds = sco.Bounds(epsilon, max_weight)
-    beta_init = np.full(n_features, 1.0 / n_features)
+    beta_init = np.full(n_opt, 1.0 / n_opt)
 
     result = sco.minimize(
         objective, beta_init, method="SLSQP",
@@ -513,9 +530,15 @@ def _fit_constrained_ols(
         options={"maxiter": 1000, "ftol": 1e-9},
     )
     if not result.success:
-        logger.warning("Constrained OLS did not converge: %s", result.message)
+        logger.debug("Constrained OLS: %s", result.message)
 
-    return result.x, 0.0
+    # Project back to original feature space if PCA was used
+    if pca is not None:
+        coef_full = pca.inverse_transform(result.x.reshape(1, -1)).ravel()
+    else:
+        coef_full = result.x
+
+    return coef_full, 0.0
 
 
 def _predict(X: np.ndarray, coef: np.ndarray, intercept: float) -> np.ndarray:
