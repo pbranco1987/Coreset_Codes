@@ -179,17 +179,24 @@ class Demeaner:
 
         self.global_mean_ = np.nanmean(X, axis=0)
 
-        unique_ids = np.unique(entity_ids)
+        unique_ids, inverse = np.unique(entity_ids, return_inverse=True)
         self._entity_ids = unique_ids
         self._id_to_pos = {int(eid): i for i, eid in enumerate(unique_ids)}
 
         n_entities = len(unique_ids)
         d = X.shape[1]
-        self.entity_means_ = np.full((n_entities, d), np.nan)
 
-        for i, eid in enumerate(unique_ids):
-            mask = entity_ids == eid
-            self.entity_means_[i] = np.nanmean(X[mask], axis=0)
+        # Vectorised per-entity mean: group-by via bincount
+        counts = np.bincount(inverse, minlength=n_entities).astype(np.float64)
+        counts[counts == 0] = 1.0  # avoid division by zero
+        self.entity_means_ = np.zeros((n_entities, d), dtype=np.float64)
+        for col in range(d):
+            col_vals = np.where(np.isnan(X[:, col]), 0.0, X[:, col])
+            col_valid = (~np.isnan(X[:, col])).astype(np.float64)
+            sums = np.bincount(inverse, weights=col_vals, minlength=n_entities)
+            valid_counts = np.bincount(inverse, weights=col_valid, minlength=n_entities)
+            valid_counts[valid_counts == 0] = 1.0
+            self.entity_means_[:, col] = sums / valid_counts
 
         # Replace any all-NaN entity means with global mean
         nan_rows = np.isnan(self.entity_means_).any(axis=1)
@@ -197,6 +204,20 @@ class Demeaner:
             self.entity_means_[nan_rows] = self.global_mean_
 
         return self
+
+    def _resolve_positions(self, entity_ids: np.ndarray) -> np.ndarray:
+        """Map entity IDs to row positions in entity_means_.
+
+        Returns an int array of length len(entity_ids).  Unseen IDs are
+        mapped to -1 (handled by callers via the global mean).
+        """
+        # Fast path: try searchsorted against the sorted unique_ids
+        positions = np.searchsorted(self._entity_ids, entity_ids)
+        # Clamp out-of-bounds so the equality check below doesn't segfault
+        positions = np.clip(positions, 0, len(self._entity_ids) - 1)
+        found = self._entity_ids[positions] == entity_ids
+        positions[~found] = -1
+        return positions
 
     def transform(
         self,
@@ -213,11 +234,14 @@ class Demeaner:
         if squeezed:
             X = X.reshape(-1, 1)
 
+        positions = self._resolve_positions(entity_ids)
+
+        # Build aligned means: known entities from entity_means_,
+        # unknown (pos == -1) from global_mean_.
+        known = positions >= 0
         means_aligned = np.tile(self.global_mean_, (X.shape[0], 1))
-        for i, eid in enumerate(entity_ids):
-            pos = self._id_to_pos.get(int(eid))
-            if pos is not None:
-                means_aligned[i] = self.entity_means_[pos]
+        if known.any():
+            means_aligned[known] = self.entity_means_[positions[known]]
 
         result = X - means_aligned
         return result.ravel() if squeezed else result
@@ -234,14 +258,14 @@ class Demeaner:
         y_demeaned = np.asarray(y_demeaned, dtype=np.float64).ravel()
         entity_ids = np.asarray(entity_ids)
 
+        positions = self._resolve_positions(entity_ids)
+        known = positions >= 0
+
         global_y = float(self.global_mean_.ravel()[0])
-        result = y_demeaned.copy()
-        for i, eid in enumerate(entity_ids):
-            pos = self._id_to_pos.get(int(eid))
-            if pos is not None:
-                result[i] += float(self.entity_means_[pos, 0])
-            else:
-                result[i] += global_y
+        result = y_demeaned + global_y  # default: add global mean
+        if known.any():
+            # Overwrite known entities with their specific means
+            result[known] = y_demeaned[known] + self.entity_means_[positions[known], 0]
         return result
 
 

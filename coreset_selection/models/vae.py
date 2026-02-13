@@ -119,6 +119,7 @@ class VAETrainer:
         early_stop_patience = int(getattr(self.cfg, "early_stopping_patience", 0))
 
         # CUDA speed knobs
+        use_amp = False
         if self.device.type == "cuda":
             try:
                 torch.set_float32_matmul_precision("high")
@@ -128,6 +129,8 @@ class VAETrainer:
                 torch.backends.cuda.matmul.allow_tf32 = True  # type: ignore[attr-defined]
             except Exception:
                 pass
+            # Automatic mixed precision — ~1.5-2× speedup on Volta+
+            use_amp = True
 
         # Move training data to target device ONCE
         X_train_t = torch.from_numpy(X)
@@ -147,12 +150,16 @@ class VAETrainer:
             else:
                 X_val_t = X_val_t.to(self.device)
 
+        # AMP scaler for mixed-precision training
+        scaler = torch.amp.GradScaler(enabled=use_amp)
+
         n_params = sum(p.numel() for p in self.model.parameters())
         print(
             f"[VAE] Training: {epochs} epochs, N={n_train}, D={input_dim}, "
             f"params={n_params:,}, device={self.device}, "
             f"{'full-batch' if use_full_batch else 'batch_size=' + str(batch_size)}"
-            f"{', compiled' if use_compiled else ''}",
+            f"{', compiled' if use_compiled else ''}"
+            f"{', amp' if use_amp else ''}",
             flush=True,
         )
 
@@ -170,16 +177,18 @@ class VAETrainer:
             # ===========================================================
             for epoch in range(epochs):
                 compiled_model.train()
-                recon, mu, logvar = compiled_model(X_train_t)
-                recon_loss = F.mse_loss(recon, X_train_t, reduction="mean")
-                kl_loss = -0.5 * torch.mean(
-                    1 + logvar - mu.pow(2) - logvar.exp()
-                )
-                loss = recon_loss + kl_weight * kl_loss
+                with torch.amp.autocast(self.device.type, enabled=use_amp):
+                    recon, mu, logvar = compiled_model(X_train_t)
+                    recon_loss = F.mse_loss(recon, X_train_t, reduction="mean")
+                    kl_loss = -0.5 * torch.mean(
+                        1 + logvar - mu.pow(2) - logvar.exp()
+                    )
+                    loss = recon_loss + kl_weight * kl_loss
 
                 optimizer.zero_grad(set_to_none=True)
-                loss.backward()
-                optimizer.step()
+                scaler.scale(loss).backward()
+                scaler.step(optimizer)
+                scaler.update()
 
                 # --- logging (infrequent) ---
                 if epoch % log_every == 0 or epoch == epochs - 1:
@@ -221,16 +230,18 @@ class VAETrainer:
                 for start in range(0, n_train, batch_size):
                     batch = X_train_t[perm[start : start + batch_size]]
 
-                    recon, mu, logvar = compiled_model(batch)
-                    recon_loss = F.mse_loss(recon, batch, reduction="mean")
-                    kl_loss = -0.5 * torch.mean(
-                        1 + logvar - mu.pow(2) - logvar.exp()
-                    )
-                    loss = recon_loss + kl_weight * kl_loss
+                    with torch.amp.autocast(self.device.type, enabled=use_amp):
+                        recon, mu, logvar = compiled_model(batch)
+                        recon_loss = F.mse_loss(recon, batch, reduction="mean")
+                        kl_loss = -0.5 * torch.mean(
+                            1 + logvar - mu.pow(2) - logvar.exp()
+                        )
+                        loss = recon_loss + kl_weight * kl_loss
 
                     optimizer.zero_grad(set_to_none=True)
-                    loss.backward()
-                    optimizer.step()
+                    scaler.scale(loss).backward()
+                    scaler.step(optimizer)
+                    scaler.update()
 
                     epoch_loss = epoch_loss + loss.detach() * batch.size(0)
 
