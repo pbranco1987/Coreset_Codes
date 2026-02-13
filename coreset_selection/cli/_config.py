@@ -90,7 +90,6 @@ def build_base_config(
     )
 
     solver_cfg = SolverConfig(
-        k=300,
         crossover_prob=0.9,
         mutation_prob=0.2,
         objectives=("mmd", "sinkhorn"),

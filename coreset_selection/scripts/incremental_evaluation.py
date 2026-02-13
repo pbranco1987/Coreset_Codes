@@ -345,7 +345,7 @@ def _generate_coreset_indices(
 
 def run_synthetic_benchmark(
     output_dir: str = "incremental_eval",
-    k: int = 300,
+    k: int,
     n_replicates: int = 3,
     seed: int = 42,
 ):
@@ -694,7 +694,7 @@ def main():
         help="Run synthetic benchmark (default if no results-dir)",
     )
     parser.add_argument(
-        "--k", type=int, default=300,
+        "--k", type=int, required=True,
         help="Coreset size for synthetic benchmark",
     )
     parser.add_argument(

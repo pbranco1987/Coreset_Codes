@@ -185,8 +185,8 @@ def main():
         description="Print per-state quota allocation c*(k) and KL_min(k)."
     )
     parser.add_argument(
-        "--k", nargs="+", type=int, default=[300],
-        help="Coreset sizes to inspect (default: 300).",
+        "--k", nargs="+", type=int, required=True,
+        help="Coreset sizes to inspect.",
     )
     parser.add_argument(
         "--alpha", type=float, default=1.0,

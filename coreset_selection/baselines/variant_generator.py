@@ -8,7 +8,7 @@ timing, and emits a structured summary CSV.
 Usage::
 
     gen = BaselineVariantGenerator(
-        geo=geo, projector=projector, k=300, alpha_geo=1.0,
+        geo=geo, projector=projector, k=200, alpha_geo=1.0,
         rff_dim=2000, seed=42, min_one_per_group=True,
     )
     rows = gen.run_all(
@@ -73,7 +73,7 @@ class BaselineVariantGenerator:
         *,
         geo,
         projector,
-        k: int = 300,
+        k: int,
         alpha_geo: float = 1.0,
         rff_dim: int = 2000,
         seed: int = 42,

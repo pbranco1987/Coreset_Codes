@@ -104,7 +104,7 @@ class SolverConfig:
         If False, do not repair to a fixed cardinality (subset size may drift).
         This is mainly intended for constraint-handling ablations.
     """
-    k: int = 300
+    k: int = None  # Must be provided by the user via --k
     pop_size: int = 200
     n_gen: int = 1000
     crossover_prob: float = 0.9

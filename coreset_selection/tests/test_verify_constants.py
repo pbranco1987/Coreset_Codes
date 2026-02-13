@@ -51,9 +51,10 @@ class TestCardinalityGrid:
         from coreset_selection.config.constants import K_GRID
         assert K_GRID == [50, 100, 200, 300, 400, 500]
 
-    def test_k_primary(self):
-        from coreset_selection.config.constants import K_PRIMARY
-        assert K_PRIMARY == 300
+    def test_k_primary_removed(self):
+        """K_PRIMARY was removed — k is now user-defined via --k."""
+        import coreset_selection.config.constants as c
+        assert not hasattr(c, "K_PRIMARY")
 
 
 class TestNSGA2Parameters:

@@ -419,10 +419,10 @@ class ExperimentRunner(R0Mixin, DiagnosticsMixin, EffortMixin, EvalMixin):
 
             self.saver.save_pareto_front(space, pareto_data)
 
-            # For k=300 runs, also evaluate the entire final front in raw space
-            # to enable objective--metric alignment diagnostics (manuscript R6).
+            # Evaluate the entire final front in raw space to enable
+            # objective--metric alignment diagnostics.
             _tp = self._phase_start()
-            if raw_evaluator is not None and int(cfg.solver.k) == 300:
+            if raw_evaluator is not None:
                 method_label = cfg.solver.get_algorithm()
                 front_rows: List[Dict[str, Any]] = []
                 for i_pf in range(pareto_data.X.shape[0]):

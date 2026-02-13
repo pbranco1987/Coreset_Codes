@@ -55,8 +55,8 @@ def main() -> int:
                            help="Run identifier (e.g., R1)")
     run_parser.add_argument("--rep-id", type=int, default=0,
                            help="Replicate ID")
-    run_parser.add_argument("--k", type=int, default=None,
-                           help="Override coreset size k")
+    run_parser.add_argument("--k", type=int, required=True,
+                           help="Coreset size k")
     run_parser.add_argument("--output-dir", default="runs_out",
                            help="Output directory")
     run_parser.add_argument("--cache-dir", default="replicate_cache",
@@ -86,7 +86,7 @@ def main() -> int:
     # R6 extras
     scenario_parser.add_argument("--source-run", default="R1", help="(R6) Source run base ID")
     scenario_parser.add_argument("--source-space", default="vae", help="(R6) Source space: vae|pca|raw")
-    scenario_parser.add_argument("--k", type=int, default=300, help="(R6) k value for source run")
+    scenario_parser.add_argument("--k", type=int, default=None, help="(R6) k value for source run")
     scenario_parser.set_defaults(func=cmd_scenario)
 
     # Convenience aliases: r0, r1, ..., r10
@@ -116,8 +116,8 @@ def main() -> int:
 
         p = subparsers.add_parser(_rid, help=help_text)
 
-        # Add simple -k option (single value or comma-separated)
-        p.add_argument("-k", dest="k_single", type=str, default=None,
+        # Add simple -k option (single value or comma-separated) — REQUIRED
+        p.add_argument("-k", dest="k_single", type=str, required=True,
                       metavar="K",
                       help="Coreset size(s): single value (e.g., -k 200) or comma-separated (e.g., -k 100,200)")
         p.add_argument("--k-values", default=None,
@@ -179,6 +179,9 @@ def main() -> int:
     all_parser = subparsers.add_parser(
         "all",
         help="Run ALL experiments sequentially (r0-r10)")
+    all_parser.add_argument("-k", dest="k_values", type=str, required=True,
+                           metavar="K",
+                           help="Coreset size(s): single value or comma-separated (e.g., -k 300)")
     all_parser.add_argument("--rep-ids", default=None,
                            help="Comma-separated replicate IDs")
     all_parser.add_argument("--output-dir", default="runs_out",
@@ -201,6 +204,9 @@ def main() -> int:
         help="Run selected experiments sequentially (e.g., seq r1 r2 r6)")
     seq_parser.add_argument("runs", nargs="+",
                            help="Experiments to run (e.g., r1 r2 r6)")
+    seq_parser.add_argument("-k", dest="k_values", type=str, required=True,
+                           metavar="K",
+                           help="Coreset size(s): single value or comma-separated (e.g., -k 300)")
     seq_parser.add_argument("--rep-ids", default=None,
                            help="Comma-separated replicate IDs")
     seq_parser.add_argument("--output-dir", default="runs_out",

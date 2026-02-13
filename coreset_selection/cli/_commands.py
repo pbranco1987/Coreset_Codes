@@ -416,8 +416,9 @@ def cmd_list_runs(args: argparse.Namespace) -> int:
 
     for run_id, spec in run_specs.items():
         desc = getattr(spec, 'description', 'No description')
-        k = getattr(spec, 'k', '?')
-        print(f"  {run_id}: k={k}, {desc}")
+        k = getattr(spec, 'k', None)
+        k_str = f"k={k}" if k is not None else "k=user-defined"
+        print(f"  {run_id}: {k_str}, {desc}")
 
     return 0
 
@@ -459,7 +460,13 @@ def cmd_scenario(args: argparse.Namespace) -> int:
     # k list
     k_values = _parse_int_list(getattr(args, "k_values", None))
     if k_values is None:
-        k_values = list(spec.sweep_k) if spec.sweep_k is not None else [int(spec.k)]
+        if spec.sweep_k is not None:
+            k_values = list(spec.sweep_k)
+        elif spec.k is not None:
+            k_values = [int(spec.k)]
+        else:
+            print(f"[scenario] ERROR: No k value specified. Use -k <value> to set the coreset size.")
+            return 1
 
     # replicate list
     _explicit_rep_ids = _parse_int_list(getattr(args, "rep_ids", None))
@@ -482,7 +489,11 @@ def cmd_scenario(args: argparse.Namespace) -> int:
 
         src = str(getattr(args, "source_run", "R1"))
         src_space = str(getattr(args, "source_space", "vae"))
-        k_for_r7 = int(getattr(args, "k", 300))
+        k_for_r7 = getattr(args, "k", None)
+        if k_for_r7 is None:
+            print("[scenario] ERROR: R6 requires --k to be specified.")
+            return 1
+        k_for_r7 = int(k_for_r7)
 
         # Set environment overrides for the underlying runner.
         os.environ["CORESET_R6_SOURCE_RUN"] = src
@@ -647,7 +658,7 @@ def _run_sequential(runs: list, args: argparse.Namespace) -> int:
         # Build args for this run
         run_args = argparse.Namespace(
             run_id=run_id.upper(),
-            k_values=None,  # Use defaults for each run
+            k_values=getattr(args, 'k_values', None),
             rep_ids=getattr(args, 'rep_ids', None),
             output_dir=args.output_dir,
             cache_dir=args.cache_dir,

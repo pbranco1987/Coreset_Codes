@@ -35,8 +35,6 @@ from .constants import (
     N_MUNICIPALITIES,
     G_STATES,
     D_FEATURES,
-    # Cardinality grid
-    K_PRIMARY,
     # NSGA-II parameters
     NSGA2_POP_SIZE,
     NSGA2_N_GENERATIONS,
@@ -120,7 +118,6 @@ __all__ = [
     "N_MUNICIPALITIES",
     "G_STATES",
     "D_FEATURES",
-    "K_PRIMARY",
     "NSGA2_POP_SIZE",
     "NSGA2_N_GENERATIONS",
     "NSGA2_CROSSOVER_PROB",

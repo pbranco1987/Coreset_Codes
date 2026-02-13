@@ -131,7 +131,7 @@ def run_scenario_standalone(
     # R6-specific options
     source_run: str = "R1",
     source_space: str = "vae",
-    source_k: int = 300,
+    source_k: int = None,
     # Cache control
     force_rebuild_cache: bool = False,
 ) -> dict:
@@ -228,8 +228,13 @@ def run_scenario_standalone(
     if k_values is None:
         if spec.sweep_k is not None:
             k_values = list(spec.sweep_k)
-        else:
+        elif spec.k is not None:
             k_values = [int(spec.k)]
+        else:
+            raise ValueError(
+                f"No k value specified for {run_id}. "
+                f"Pass --k-values on the command line (e.g., --k-values 300)."
+            )
 
     # ------------------------------------------------------------------
     # Determine replicate mode
@@ -647,7 +652,7 @@ Scenarios (all run with 1 replicate by default):
     parser.add_argument(
         "--source-k",
         type=int,
-        default=300,
+        default=None,
         help="(R6 only) k value for source run"
     )
 

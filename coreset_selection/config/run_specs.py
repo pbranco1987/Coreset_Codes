@@ -25,8 +25,8 @@ This module provides:
 
 Notes
 -----
-* K is user-defined (via ``--k`` or the ``K_GRID`` sweep); the default
-  fallback is k=300 when the user does not specify a value.
+* K is user-defined (via ``-k`` or the ``K_GRID`` sweep); the user must
+  always specify a value — there is no hardcoded default.
 * We keep the historical flag `use_quota_constraints` for backward
   compatibility, but the canonical switch is `GeoConfig.constraint_mode`.
 * The manuscript's "R0" quota path is used by quota-mode baselines and quota
@@ -65,7 +65,7 @@ class RunSpec:
     enforce_exact_k: bool = True
 
     # Run control
-    k: int = 300
+    k: int = None  # Must be provided by the user via -k
     sweep_k: Optional[Tuple[int, ...]] = None
     sweep_dim: Optional[Tuple[int, ...]] = None  # Dimension sweep grid (e.g. D_GRID for R13/R14)
     n_reps: int = 1
@@ -117,7 +117,6 @@ def get_run_specs() -> Dict[str, RunSpec]:
             objectives=(),
             constraint_mode="municipality_share_quota",
             enforce_exact_k=True,
-            k=300,
             sweep_k=K_GRID,
             n_reps=1,
             baselines_enabled=False,
@@ -135,7 +134,6 @@ def get_run_specs() -> Dict[str, RunSpec]:
             objectives=("mmd", "sinkhorn"),
             constraint_mode="population_share",
             enforce_exact_k=True,
-            k=300,
             sweep_k=K_GRID,
             n_reps=5,
             baselines_enabled=False,
@@ -151,7 +149,6 @@ def get_run_specs() -> Dict[str, RunSpec]:
             space="vae",
             objectives=("mmd",),
             constraint_mode="population_share",
-            k=300,
             sweep_k=None,
             n_reps=1,
             requires_vae=True,
@@ -162,7 +159,6 @@ def get_run_specs() -> Dict[str, RunSpec]:
             space="vae",
             objectives=("sinkhorn",),
             constraint_mode="population_share",
-            k=300,
             sweep_k=None,
             n_reps=1,
             requires_vae=True,
@@ -175,7 +171,6 @@ def get_run_specs() -> Dict[str, RunSpec]:
             space="vae",
             objectives=("mmd", "sinkhorn"),
             constraint_mode="municipality_share_quota",
-            k=300,
             sweep_k=None,
             n_reps=1,
             requires_vae=True,
@@ -188,7 +183,6 @@ def get_run_specs() -> Dict[str, RunSpec]:
             space="vae",
             objectives=("mmd", "sinkhorn"),
             constraint_mode="joint",
-            k=300,
             sweep_k=None,
             n_reps=1,
             requires_vae=True,
@@ -201,7 +195,6 @@ def get_run_specs() -> Dict[str, RunSpec]:
             space="vae",
             objectives=("mmd", "sinkhorn"),
             constraint_mode="none",
-            k=300,
             sweep_k=None,
             n_reps=1,
             requires_vae=True,
@@ -210,11 +203,10 @@ def get_run_specs() -> Dict[str, RunSpec]:
         # R7: SKL ablation (VAE mean space; tri-objective)
         "R7": RunSpec(
             run_id="R7",
-            description="SKL ablation: VAE mean space, population-share, MMD+Sinkhorn+SKL (k=300)",
+            description="SKL ablation: VAE mean space, population-share, MMD+Sinkhorn+SKL",
             space="vae",
             objectives=("mmd", "sinkhorn", "skl"),
             constraint_mode="population_share",
-            k=300,
             sweep_k=None,
             n_reps=1,
             requires_vae=True,
@@ -230,7 +222,6 @@ def get_run_specs() -> Dict[str, RunSpec]:
             objectives=("mmd", "sinkhorn"),
             constraint_mode="population_share",
             enforce_exact_k=True,
-            k=300,
             sweep_k=K_GRID,
             n_reps=1,
             requires_vae=False,
@@ -243,7 +234,6 @@ def get_run_specs() -> Dict[str, RunSpec]:
             objectives=("mmd", "sinkhorn"),
             constraint_mode="population_share",
             enforce_exact_k=True,
-            k=300,
             sweep_k=K_GRID,
             n_reps=1,
             requires_vae=False,
@@ -257,7 +247,6 @@ def get_run_specs() -> Dict[str, RunSpec]:
             space="vae",
             objectives=(),
             constraint_mode="population_share",
-            k=300,
             sweep_k=None,
             n_reps=1,
             baselines_enabled=True,
@@ -272,7 +261,6 @@ def get_run_specs() -> Dict[str, RunSpec]:
             space="vae",
             objectives=(),
             constraint_mode="population_share",
-            k=300,
             sweep_k=None,
             n_reps=1,
             baselines_enabled=False,
@@ -287,7 +275,6 @@ def get_run_specs() -> Dict[str, RunSpec]:
             space="vae",
             objectives=("mmd", "sinkhorn"),
             constraint_mode="population_share",
-            k=300,
             sweep_k=None,
             n_reps=1,
             requires_vae=True,
@@ -301,7 +288,6 @@ def get_run_specs() -> Dict[str, RunSpec]:
             objectives=("mmd", "sinkhorn"),             # Bi-objective Pareto front
             constraint_mode="population_share",          # Population-per-state proportionality constraint
             enforce_exact_k=True,
-            k=300,
             sweep_k=None,
             sweep_dim=D_GRID,
             n_reps=1,
@@ -317,7 +303,6 @@ def get_run_specs() -> Dict[str, RunSpec]:
             objectives=("mmd", "sinkhorn"),             # Bi-objective Pareto front
             constraint_mode="population_share",          # Population-per-state proportionality constraint
             enforce_exact_k=True,
-            k=300,
             sweep_k=None,
             sweep_dim=D_GRID,
             n_reps=1,
@@ -355,9 +340,10 @@ def apply_run_spec(
     )
 
     # Solver
+    solver_k = int(spec.k) if spec.k is not None else base_cfg.solver.k
     solver_cfg = replace(
         base_cfg.solver,
-        k=int(spec.k),
+        k=solver_k,
         objectives=tuple(spec.objectives),
         enabled=(len(spec.objectives) > 0),
         enforce_exact_k=bool(spec.enforce_exact_k),

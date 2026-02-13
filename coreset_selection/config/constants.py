@@ -30,7 +30,6 @@ D_FEATURES = 621        # D = 621 numeric covariates
 # =============================================================================
 
 K_GRID = [50, 100, 200, 300, 400, 500]
-K_PRIMARY = 300  # Primary k value used for most analyses
 
 # =============================================================================
 # Dimension Grid for VAE/PCA Representation Sweep (R13/R14)

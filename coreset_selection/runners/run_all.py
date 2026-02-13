@@ -152,7 +152,7 @@ def run_experiments(
         elif hasattr(spec, 'sweep_k') and spec.sweep_k:
             ks = K_GRID
         else:
-            ks = [spec.k] if hasattr(spec, 'k') else [300]
+            ks = [spec.k] if hasattr(spec, 'k') and spec.k is not None else k_values or K_GRID
         
         for k in ks:
             run_name = f"{run_id}_k{k}" if len(ks) > 1 else run_id
