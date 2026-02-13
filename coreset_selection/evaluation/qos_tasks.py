@@ -439,15 +439,19 @@ def _fit_pls(
     best_k = 1
     best_mse = np.inf
 
+    import warnings as _w
+
     for k in range(1, max_comp + 1):
         fold_mses = []
         for tr_idx, va_idx in tscv.split(X_train):
             if len(tr_idx) < k or len(va_idx) == 0:
                 continue
             try:
-                pls = PLSRegression(n_components=k, scale=True)
-                pls.fit(X_train[tr_idx], y_train[tr_idx])
-                pred = pls.predict(X_train[va_idx]).ravel()
+                with _w.catch_warnings():
+                    _w.filterwarnings("ignore", message="y residual is constant")
+                    pls = PLSRegression(n_components=k, scale=True)
+                    pls.fit(X_train[tr_idx], y_train[tr_idx])
+                    pred = pls.predict(X_train[va_idx]).ravel()
                 fold_mses.append(mean_squared_error(y_train[va_idx], pred))
             except Exception:
                 fold_mses.append(np.nan)
@@ -460,8 +464,10 @@ def _fit_pls(
                 best_k = k
 
     # Fit final model with optimal components
-    pls = PLSRegression(n_components=best_k, scale=True)
-    pls.fit(X_train, y_train)
+    with _w.catch_warnings():
+        _w.filterwarnings("ignore", message="y residual is constant")
+        pls = PLSRegression(n_components=best_k, scale=True)
+        pls.fit(X_train, y_train)
 
     coef = pls.coef_.ravel()
 
@@ -486,18 +492,10 @@ def _fit_constrained_ols(
 
     n_features = X_train.shape[1]
 
-    # Feasibility check
+    # Feasibility check — silently relax bounds when D >> k
     if n_features * epsilon > 1.0 + 1e-9:
-        logger.warning(
-            "Constrained OLS: epsilon=%.4f infeasible with %d features. "
-            "Falling back to relaxed bounds.", epsilon, n_features,
-        )
         epsilon = max(1e-6, 0.5 / n_features)
     if max_weight * n_features < 1.0 - 1e-9:
-        logger.warning(
-            "Constrained OLS: max_weight=%.4f infeasible with %d features. "
-            "Relaxing.", max_weight, n_features,
-        )
         max_weight = min(1.0, 2.0 / n_features)
 
     def objective(beta: np.ndarray) -> float:
