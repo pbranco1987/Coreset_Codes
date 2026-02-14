@@ -53,6 +53,9 @@ echo "  Seeds: ${SEEDS[*]}"
 echo "============================================"
 echo ""
 
+# Thread limits are set via environment variables (before python starts)
+TENV="OMP_NUM_THREADS=$THREADS_PER_SESSION MKL_NUM_THREADS=$THREADS_PER_SESSION OPENBLAS_NUM_THREADS=$THREADS_PER_SESSION"
+
 SWEEPS="r0 r1 r8 r9"
 SINGLES="r2 r3 r4 r5 r6 r7 r10 r11 r12 r13 r14"
 
@@ -70,16 +73,16 @@ for S in $(seq 1 "$N_SESSIONS"); do
     for r in $SWEEPS; do
         tmux new-window -t "$SESSION" -n "$r"
         tmux send-keys -t "$SESSION:$r" \
-            "cd ~/Coreset_Codes && source venv/bin/activate && python3 -m coreset_selection $r -j $THREADS_PER_SESSION -k 50,100,200,300,400,500 --seed $SEED --output-dir $OUTDIR" Enter
+            "cd ~/Coreset_Codes && source venv/bin/activate && $TENV python3 -m coreset_selection $r -k 50,100,200,300,400,500 --seed $SEED --output-dir $OUTDIR" Enter
     done
 
     for r in $SINGLES; do
         tmux new-window -t "$SESSION" -n "$r"
         tmux send-keys -t "$SESSION:$r" \
-            "cd ~/Coreset_Codes && source venv/bin/activate && python3 -m coreset_selection $r -j $THREADS_PER_SESSION -k 100 --seed $SEED --output-dir $OUTDIR" Enter
+            "cd ~/Coreset_Codes && source venv/bin/activate && $TENV python3 -m coreset_selection $r -k 100 --seed $SEED --output-dir $OUTDIR" Enter
     done
 
-    echo "  Session '$SESSION' launched (seed=$SEED, output=$OUTDIR, -j $THREADS_PER_SESSION)"
+    echo "  Session '$SESSION' launched (seed=$SEED, output=$OUTDIR, threads=$THREADS_PER_SESSION)"
 done
 
 echo ""
