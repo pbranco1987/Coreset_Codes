@@ -6,6 +6,10 @@
 # Thread count is auto-calculated: total_cores / N_sessions.
 # Each session uses a different seed for independent replicates.
 #
+# PHASE 1: Builds replicate caches for ALL seeds sequentially (VAE training).
+#           This runs ONCE using all cores, before any experiments start.
+# PHASE 2: Launches all tmux sessions in parallel with thread-limited experiments.
+#
 # Usage:
 #   bash scripts/run_parallel_tmux.sh 1              # 1 session (seed=123)
 #   bash scripts/run_parallel_tmux.sh 2              # 2 sessions (seeds 123, 456)
@@ -53,6 +57,37 @@ echo "  Seeds: ${SEEDS[*]}"
 echo "============================================"
 echo ""
 
+# ===========================================================================
+# PHASE 1: Pre-build replicate caches for each seed (uses ALL cores)
+# ===========================================================================
+echo "PHASE 1: Building replicate caches (VAE + PCA)..."
+echo "  This uses all $TOTAL_CORES cores and must finish before experiments start."
+echo ""
+
+cd ~/Coreset_Codes
+source venv/bin/activate
+
+for SEED in "${SEEDS[@]}"; do
+    echo "  Building caches for seed=$SEED ..."
+    python3 -m coreset_selection prep \
+        --seed "$SEED" \
+        --cache-dir "replicate_cache_seed${SEED}" \
+        --data-dir data \
+        --n-replicates 5 \
+        --device cpu
+    echo "  Seed $SEED: cache ready."
+done
+
+echo ""
+echo "PHASE 1 complete. All caches built."
+echo ""
+
+# ===========================================================================
+# PHASE 2: Launch tmux sessions (thread-limited)
+# ===========================================================================
+echo "PHASE 2: Launching experiment sessions..."
+echo ""
+
 # Thread limits are set via environment variables (before python starts)
 TENV="OMP_NUM_THREADS=$THREADS_PER_SESSION MKL_NUM_THREADS=$THREADS_PER_SESSION OPENBLAS_NUM_THREADS=$THREADS_PER_SESSION"
 
@@ -64,6 +99,7 @@ for S in $(seq 1 "$N_SESSIONS"); do
     SEED="${SEEDS[$IDX]}"
     SESSION="coreset${S}"
     OUTDIR="runs_out_seed${SEED}"
+    CACHEDIR="replicate_cache_seed${SEED}"
 
     # Kill existing session if present
     tmux kill-session -t "$SESSION" 2>/dev/null || true
@@ -73,16 +109,16 @@ for S in $(seq 1 "$N_SESSIONS"); do
     for r in $SWEEPS; do
         tmux new-window -t "$SESSION" -n "$r"
         tmux send-keys -t "$SESSION:$r" \
-            "cd ~/Coreset_Codes && source venv/bin/activate && $TENV python3 -m coreset_selection $r -k 50,100,200,300,400,500 --seed $SEED --output-dir $OUTDIR" Enter
+            "cd ~/Coreset_Codes && source venv/bin/activate && $TENV python3 -m coreset_selection $r -k 50,100,200,300,400,500 --seed $SEED --output-dir $OUTDIR --cache-dir $CACHEDIR" Enter
     done
 
     for r in $SINGLES; do
         tmux new-window -t "$SESSION" -n "$r"
         tmux send-keys -t "$SESSION:$r" \
-            "cd ~/Coreset_Codes && source venv/bin/activate && $TENV python3 -m coreset_selection $r -k 100 --seed $SEED --output-dir $OUTDIR" Enter
+            "cd ~/Coreset_Codes && source venv/bin/activate && $TENV python3 -m coreset_selection $r -k 100 --seed $SEED --output-dir $OUTDIR --cache-dir $CACHEDIR" Enter
     done
 
-    echo "  Session '$SESSION' launched (seed=$SEED, output=$OUTDIR, threads=$THREADS_PER_SESSION)"
+    echo "  Session '$SESSION' launched (seed=$SEED, output=$OUTDIR, cache=$CACHEDIR, threads=$THREADS_PER_SESSION)"
 done
 
 echo ""
