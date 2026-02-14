@@ -11,10 +11,20 @@
 # PHASE 2: Launches all tmux sessions in parallel with thread-limited experiments.
 #
 # Usage:
-#   bash scripts/run_parallel_tmux.sh 1              # 1 session (seed=123)
-#   bash scripts/run_parallel_tmux.sh 2              # 2 sessions (seeds 123, 456)
-#   bash scripts/run_parallel_tmux.sh 3              # 3 sessions (seeds 123, 456, 789)
-#   bash scripts/run_parallel_tmux.sh 2 200 300      # 2 sessions with custom seeds
+#   bash scripts/run_parallel_tmux.sh <N_SESSIONS> <MACHINE_ID>
+#
+#   MACHINE_ID determines which seeds are used (0-based):
+#     Machine 0: seeds 123, 456       (sessions 1-2)
+#     Machine 1: seeds 789, 1012      (sessions 3-4)
+#     Machine 2: seeds 1345, 1678     (sessions 5-6)
+#     ...
+#
+# Examples:
+#   bash scripts/run_parallel_tmux.sh 2 0    # Server A: seeds 123, 456
+#   bash scripts/run_parallel_tmux.sh 2 1    # Server B: seeds 789, 1012
+#   bash scripts/run_parallel_tmux.sh 2 2    # Server C: seeds 1345, 1678
+#   bash scripts/run_parallel_tmux.sh 3 0    # Server A: seeds 123, 456, 789
+#   bash scripts/run_parallel_tmux.sh 2 0 200 300  # Custom seeds (ignores machine ID)
 #
 # Watching experiments in real time:
 #   tmux attach -t coreset1          # attach to session 1
@@ -30,18 +40,26 @@
 set -euo pipefail
 
 N_SESSIONS="${1:-1}"
-shift || true
+MACHINE_ID="${2:-0}"
+shift 2 || shift $# || true
 
-# Default seeds: 123, 456, 789, 1012, 1345, ...
-DEFAULT_SEEDS=(123 456 789 1012 1345 1678 1901 2234 2567 2890)
+# 20 pre-defined seeds — enough for 10 machines × 2 sessions each
+ALL_SEEDS=(123 456 789 1012 1345 1678 1901 2234 2567 2890
+           3123 3456 3789 4012 4345 4678 4901 5234 5567 5890)
 
-# Use custom seeds if provided, otherwise use defaults
+# Use custom seeds if extra args provided, otherwise slice by machine ID
 SEEDS=()
 if [ $# -gt 0 ]; then
     SEEDS=("$@")
 else
+    OFFSET=$(( MACHINE_ID * N_SESSIONS ))
     for i in $(seq 0 $(( N_SESSIONS - 1 ))); do
-        SEEDS+=("${DEFAULT_SEEDS[$i]}")
+        IDX=$(( OFFSET + i ))
+        if [ "$IDX" -ge "${#ALL_SEEDS[@]}" ]; then
+            echo "ERROR: Machine $MACHINE_ID with $N_SESSIONS sessions exceeds available seeds (max ${#ALL_SEEDS[@]})"
+            exit 1
+        fi
+        SEEDS+=("${ALL_SEEDS[$IDX]}")
     done
 fi
 
@@ -50,6 +68,7 @@ THREADS_PER_SESSION=$(( TOTAL_CORES / N_SESSIONS ))
 [ "$THREADS_PER_SESSION" -lt 2 ] && THREADS_PER_SESSION=2
 
 echo "============================================"
+echo "  Machine ID: $MACHINE_ID"
 echo "  Cores: $TOTAL_CORES"
 echo "  Sessions: $N_SESSIONS"
 echo "  Threads/session: $THREADS_PER_SESSION"
