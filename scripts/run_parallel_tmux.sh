@@ -5,26 +5,24 @@
 # Each session gets 15 windows (R0-R14), each running one experiment.
 # Thread count is auto-calculated: total_cores / N_sessions.
 # Each session uses a different seed for independent replicates.
+# Machine ID is auto-detected from hostname — no two servers share seeds.
 #
 # PHASE 1: Builds replicate caches for ALL seeds sequentially (VAE training).
 #           This runs ONCE using all cores, before any experiments start.
 # PHASE 2: Launches all tmux sessions in parallel with thread-limited experiments.
 #
 # Usage:
-#   bash scripts/run_parallel_tmux.sh <N_SESSIONS> <MACHINE_ID>
+#   bash scripts/run_parallel_tmux.sh <N_SESSIONS>
 #
-#   MACHINE_ID determines which seeds are used (0-based):
-#     Machine 0: seeds 123, 456       (sessions 1-2)
-#     Machine 1: seeds 789, 1012      (sessions 3-4)
-#     Machine 2: seeds 1345, 1678     (sessions 5-6)
-#     ...
+#   Machine is auto-detected from hostname. Seed assignment:
+#     labgele  (machine 0): seeds 123, 456, ...
+#     lessonia (machine 1): seeds 789, 1012, ...
+#     (other)  (machine 2): seeds 1345, 1678, ...
 #
 # Examples:
-#   bash scripts/run_parallel_tmux.sh 2 0    # Server A: seeds 123, 456
-#   bash scripts/run_parallel_tmux.sh 2 1    # Server B: seeds 789, 1012
-#   bash scripts/run_parallel_tmux.sh 2 2    # Server C: seeds 1345, 1678
-#   bash scripts/run_parallel_tmux.sh 3 0    # Server A: seeds 123, 456, 789
-#   bash scripts/run_parallel_tmux.sh 2 0 200 300  # Custom seeds (ignores machine ID)
+#   bash scripts/run_parallel_tmux.sh 2          # 2 sessions, auto-detect machine
+#   bash scripts/run_parallel_tmux.sh 3          # 3 sessions, auto-detect machine
+#   bash scripts/run_parallel_tmux.sh 2 42 99    # 2 sessions with custom seeds
 #
 # Watching experiments in real time:
 #   tmux attach -t coreset1          # attach to session 1
@@ -40,8 +38,27 @@
 set -euo pipefail
 
 N_SESSIONS="${1:-1}"
-MACHINE_ID="${2:-0}"
-shift 2 || shift $# || true
+shift || true
+
+# ---- Auto-detect machine ID from hostname ----
+HOSTNAME_LOWER="$(hostname | tr '[:upper:]' '[:lower:]')"
+case "$HOSTNAME_LOWER" in
+    *labgele*)   MACHINE_ID=0 ;;
+    *lessonia*)  MACHINE_ID=1 ;;
+    *srv03*|*server3*) MACHINE_ID=2 ;;
+    *srv04*|*server4*) MACHINE_ID=3 ;;
+    *srv05*|*server5*) MACHINE_ID=4 ;;
+    *srv06*|*server6*) MACHINE_ID=5 ;;
+    *srv07*|*server7*) MACHINE_ID=6 ;;
+    *srv08*|*server8*) MACHINE_ID=7 ;;
+    *srv09*|*server9*) MACHINE_ID=8 ;;
+    *srv10*|*server10*) MACHINE_ID=9 ;;
+    *)
+        # Fallback: hash the hostname to get a stable machine ID
+        MACHINE_ID=$(( $(echo "$HOSTNAME_LOWER" | cksum | cut -d' ' -f1) % 10 ))
+        echo "WARNING: Unknown hostname '$HOSTNAME_LOWER', using machine ID $MACHINE_ID (from hash)"
+        ;;
+esac
 
 # 20 pre-defined seeds — enough for 10 machines × 2 sessions each
 ALL_SEEDS=(123 456 789 1012 1345 1678 1901 2234 2567 2890
@@ -68,6 +85,7 @@ THREADS_PER_SESSION=$(( TOTAL_CORES / N_SESSIONS ))
 [ "$THREADS_PER_SESSION" -lt 2 ] && THREADS_PER_SESSION=2
 
 echo "============================================"
+echo "  Hostname: $(hostname)"
 echo "  Machine ID: $MACHINE_ID"
 echo "  Cores: $TOTAL_CORES"
 echo "  Sessions: $N_SESSIONS"
