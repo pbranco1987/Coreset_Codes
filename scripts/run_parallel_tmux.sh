@@ -12,17 +12,29 @@
 # PHASE 2: Launches all tmux sessions in parallel with thread-limited experiments.
 #
 # Usage:
-#   bash scripts/run_parallel_tmux.sh <N_SESSIONS>
+#   bash scripts/run_parallel_tmux.sh <N_SESSIONS> [OPTIONS]
 #
 #   Machine is auto-detected from hostname. Seed assignment:
 #     labgele  (machine 0): seeds 123, 456, ...
 #     lessonia (machine 1): seeds 789, 1012, ...
 #     (other)  (machine 2): seeds 1345, 1678, ...
 #
+# Per-session k values:
+#   --k1 <val>       k for single-k experiments in session 1 (default: 100)
+#   --k2 <val>       k for single-k experiments in session 2 (default: 100)
+#   --range1 <vals>  comma-separated k range for sweep experiments in session 1
+#                    (default: 50,100,200,300,400,500)
+#   --range2 <vals>  comma-separated k range for sweep experiments in session 2
+#                    (default: 50,100,200,300,400,500)
+#
+#   Sweep experiments (r0, r1, r8, r9) use --rangeN.
+#   All other experiments (r2-r7, r10-r14) use --kN.
+#
 # Examples:
-#   bash scripts/run_parallel_tmux.sh 2          # 2 sessions, auto-detect machine
-#   bash scripts/run_parallel_tmux.sh 3          # 3 sessions, auto-detect machine
-#   bash scripts/run_parallel_tmux.sh 2 42 99    # 2 sessions with custom seeds
+#   bash scripts/run_parallel_tmux.sh 2                              # defaults for both
+#   bash scripts/run_parallel_tmux.sh 2 --k1 100 --k2 300            # different single k
+#   bash scripts/run_parallel_tmux.sh 2 --k1 100 --range1 50,100,200 --k2 300 --range2 200,300,400
+#   bash scripts/run_parallel_tmux.sh 2 42 99                        # custom seeds (no k flags)
 #
 # Watching experiments in real time:
 #   tmux attach -t coreset1          # attach to session 1
@@ -39,6 +51,43 @@ set -euo pipefail
 
 N_SESSIONS="${1:-1}"
 shift || true
+
+# ---- Parse --kN and --rangeN options, collect remaining args as seeds ----
+declare -A SESSION_K        # SESSION_K[1]=100, SESSION_K[2]=300
+declare -A SESSION_RANGE    # SESSION_RANGE[1]="50,100,200"
+EXTRA_ARGS=()
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --range[0-9]*)
+            # Must check --range before --k to avoid prefix conflict
+            _snum="${1#--range}"
+            if [ -z "$_snum" ] || ! [[ "$_snum" =~ ^[0-9]+$ ]]; then
+                echo "ERROR: Invalid option $1 (expected --range1, --range2, ...)"
+                exit 1
+            fi
+            shift
+            SESSION_RANGE[$_snum]="$1"
+            ;;
+        --k[0-9]*)
+            _snum="${1#--k}"
+            if [ -z "$_snum" ] || ! [[ "$_snum" =~ ^[0-9]+$ ]]; then
+                echo "ERROR: Invalid option $1 (expected --k1, --k2, ...)"
+                exit 1
+            fi
+            shift
+            SESSION_K[$_snum]="$1"
+            ;;
+        *)
+            EXTRA_ARGS+=("$1")
+            ;;
+    esac
+    shift
+done
+
+# Default k values
+DEFAULT_SINGLE_K=100
+DEFAULT_RANGE="50,100,200,300,400,500"
 
 # ---- Auto-detect machine ID from hostname ----
 HOSTNAME_LOWER="$(hostname | tr '[:upper:]' '[:lower:]')"
@@ -66,8 +115,8 @@ ALL_SEEDS=(123 456 789 1012 1345 1678 1901 2234 2567 2890
 
 # Use custom seeds if extra args provided, otherwise slice by machine ID
 SEEDS=()
-if [ $# -gt 0 ]; then
-    SEEDS=("$@")
+if [ ${#EXTRA_ARGS[@]} -gt 0 ]; then
+    SEEDS=("${EXTRA_ARGS[@]}")
 else
     OFFSET=$(( MACHINE_ID * N_SESSIONS ))
     for i in $(seq 0 $(( N_SESSIONS - 1 ))); do
@@ -91,6 +140,11 @@ echo "  Cores: $TOTAL_CORES"
 echo "  Sessions: $N_SESSIONS"
 echo "  Threads/session: $THREADS_PER_SESSION"
 echo "  Seeds: ${SEEDS[*]}"
+for S in $(seq 1 "$N_SESSIONS"); do
+    _sk="${SESSION_K[$S]:-$DEFAULT_SINGLE_K}"
+    _rng="${SESSION_RANGE[$S]:-$DEFAULT_RANGE}"
+    echo "  Session $S: k=$_sk  range=$_rng"
+done
 echo "============================================"
 echo ""
 
@@ -138,6 +192,10 @@ for S in $(seq 1 "$N_SESSIONS"); do
     OUTDIR="runs_out_seed${SEED}"
     CACHEDIR="replicate_cache_seed${SEED}"
 
+    # Per-session k values (fall back to defaults)
+    SINGLE_K="${SESSION_K[$S]:-$DEFAULT_SINGLE_K}"
+    RANGE_K="${SESSION_RANGE[$S]:-$DEFAULT_RANGE}"
+
     # Kill existing session if present
     tmux kill-session -t "$SESSION" 2>/dev/null || true
 
@@ -146,16 +204,16 @@ for S in $(seq 1 "$N_SESSIONS"); do
     for r in $SWEEPS; do
         tmux new-window -t "$SESSION" -n "$r"
         tmux send-keys -t "$SESSION:$r" \
-            "cd ~/Coreset_Codes && source venv/bin/activate && $TENV python3 -m coreset_selection $r -k 50,100,200,300,400,500 --seed $SEED --output-dir $OUTDIR --cache-dir $CACHEDIR" Enter
+            "cd ~/Coreset_Codes && source venv/bin/activate && $TENV python3 -m coreset_selection $r -k $RANGE_K --seed $SEED --output-dir $OUTDIR --cache-dir $CACHEDIR" Enter
     done
 
     for r in $SINGLES; do
         tmux new-window -t "$SESSION" -n "$r"
         tmux send-keys -t "$SESSION:$r" \
-            "cd ~/Coreset_Codes && source venv/bin/activate && $TENV python3 -m coreset_selection $r -k 100 --seed $SEED --output-dir $OUTDIR --cache-dir $CACHEDIR" Enter
+            "cd ~/Coreset_Codes && source venv/bin/activate && $TENV python3 -m coreset_selection $r -k $SINGLE_K --seed $SEED --output-dir $OUTDIR --cache-dir $CACHEDIR" Enter
     done
 
-    echo "  Session '$SESSION' launched (seed=$SEED, output=$OUTDIR, cache=$CACHEDIR, threads=$THREADS_PER_SESSION)"
+    echo "  Session '$SESSION' launched (seed=$SEED, k=$SINGLE_K, range=$RANGE_K, output=$OUTDIR, cache=$CACHEDIR, threads=$THREADS_PER_SESSION)"
 done
 
 echo ""
