@@ -133,13 +133,8 @@ def build_replicate_cache(
             derived_cls: dict = {}
             if raw_df is not None:
                 derived_extra_reg = extract_extra_regression_targets(raw_df)
-                # Build metadata JSON path alongside the cache
-                _meta_json_path = str(
-                    Path(cache_path).with_suffix(".cls_metadata.json")
-                )
-                derived_cls = derive_classification_targets(
-                    raw_df, metadata_path=_meta_json_path,
-                )
+                # NOTE: metadata_path deferred until cache_path is known (line ~393)
+                derived_cls = derive_classification_targets(raw_df)
                 timer.checkpoint(
                     "Derived targets extracted",
                     n_extra_reg=len(derived_extra_reg),
@@ -516,6 +511,20 @@ def build_replicate_cache(
                 save_dict["population"] = np.asarray(pop)
 
             atomic_savez(cache_path, **save_dict)
+
+        # Write classification-target metadata JSON alongside the cache
+        if derived_cls and hasattr(derived_cls, '_metadata'):
+            _meta_json_path = str(
+                Path(cache_path).with_suffix(".cls_metadata.json")
+            )
+            try:
+                import json as _json_meta
+                with open(_meta_json_path, "w", encoding="utf-8") as _f:
+                    _json_meta.dump(derived_cls._metadata, _f, indent=2, ensure_ascii=False)
+                timer.checkpoint("Classification metadata saved", path=_meta_json_path)
+            except Exception as e:
+                print(f"[cache] Warning: could not write cls metadata JSON: {e}")
+
     return cache_path
 
 
