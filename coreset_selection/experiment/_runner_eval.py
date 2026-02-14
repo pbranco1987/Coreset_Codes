@@ -116,6 +116,7 @@ class EvalMixin:
         - Manuscript Section VII KPI stability: per-state target means
         - Multi-model downstream evaluation (KNN, RF, LR, GBT) if enabled
         """
+        import time as _t
         from ..evaluation.kpi_stability import state_kpi_stability
 
         idx_sel = np.asarray(idx_sel, dtype=int)
@@ -126,20 +127,32 @@ class EvalMixin:
         # geographic diagnostics.  dual_geo_diagnostics returns legacy unsuffixed
         # keys (geo_kl, geo_l1, geo_maxdev), plus _muni and _pop suffixed keys.
         # Population-share keys are NaN when weights are unavailable.
+        print(f"            [1/5] Geographic diagnostics...", end=" ", flush=True)
+        _t0 = _t.perf_counter()
         geo_all = dual_geo_diagnostics(
             geo, idx_sel, k, alpha=float(self.cfg.geo.alpha_geo)
         )
         row.update(geo_all)
+        _dt_geo = _t.perf_counter() - _t0
+        print(f"({_dt_geo:.1f}s)", flush=True)
 
         # Raw-space evaluation (with state-conditioned stability if labels available)
+        _has_stability = state_labels is not None
+        _label = "Nystrom + KRR + stability" if _has_stability else "Nystrom + KRR"
+        print(f"            [2/5] {_label}...", end=" ", flush=True)
+        _t0 = _t.perf_counter()
         if raw_evaluator is not None:
-            if state_labels is not None:
+            if _has_stability:
                 row.update(raw_evaluator.all_metrics_with_state_stability(idx_sel, state_labels))
             else:
                 row.update(raw_evaluator.all_metrics(idx_sel))
+        _dt_raw = _t.perf_counter() - _t0
+        print(f"({_dt_raw:.1f}s)", flush=True)
 
         # Manuscript Section VII: state-conditioned KPI stability via target means
         # (complementary to the split-half RMSE stability already computed above)
+        print(f"            [3/5] KPI stability...", end=" ", flush=True)
+        _t0 = _t.perf_counter()
         if state_labels is not None and raw_evaluator is not None and raw_evaluator.y is not None:
             try:
                 kpi_stab = state_kpi_stability(
@@ -152,8 +165,6 @@ class EvalMixin:
                 pass  # non-critical
 
             # G8: Export per-state KPI drift CSV for heatmap visualization.
-            # Saved alongside other results so that ManuscriptArtifacts can
-            # discover the file via glob("**/state_kpi_drift*.csv").
             try:
                 from ..evaluation.kpi_stability import export_state_kpi_drift_csv
                 drift_csv_path = os.path.join(
@@ -170,13 +181,24 @@ class EvalMixin:
                 )
             except Exception:
                 pass  # non-critical; heatmap will fall back to placeholder
+        _dt_kpi = _t.perf_counter() - _t0
+        print(f"({_dt_kpi:.1f}s)", flush=True)
 
         # Multi-model downstream evaluation (KNN, RF, LR, GBT)
+        _dt_multi = 0.0
+        _n_reg = len(extra_regression_targets or {})
+        _n_cls = len(classification_targets or {})
         if (
             raw_evaluator is not None
             and getattr(self.cfg.eval, "multi_model_enabled", False)
             and (extra_regression_targets or classification_targets)
         ):
+            print(
+                f"            [4/5] Multi-model downstream "
+                f"({_n_reg} reg + {_n_cls} cls targets, 4 models)...",
+                end=" ", flush=True,
+            )
+            _t0 = _t.perf_counter()
             try:
                 reg_targets = extra_regression_targets or {}
                 cls_targets = classification_targets or {}
@@ -188,14 +210,21 @@ class EvalMixin:
                 )
                 row.update(multi_metrics)
             except Exception as e:
-                print(f"[runner] WARNING: multi-model downstream failed: {e}")
+                print(f"FAILED: {e}", flush=True)
+            _dt_multi = _t.perf_counter() - _t0
+            print(f"({_dt_multi:.1f}s)", flush=True)
+        else:
+            print(f"            [4/5] Multi-model downstream... skipped", flush=True)
 
         # QoS downstream evaluation (OLS, Ridge, Elastic Net, PLS, Constrained)
+        _dt_qos = 0.0
         if (
             raw_evaluator is not None
             and raw_evaluator.y is not None
             and getattr(self.cfg.eval, "qos_enabled", False)
         ):
+            print(f"            [5/5] QoS downstream (OLS/Ridge/EN/PLS)...", end=" ", flush=True)
+            _t0 = _t.perf_counter()
             try:
                 from ..evaluation.qos_tasks import QoSConfig, qos_coreset_evaluation
 
@@ -234,7 +263,20 @@ class EvalMixin:
                 )
                 row.update(qos_metrics)
             except Exception as e:
-                print(f"[runner] WARNING: QoS downstream evaluation failed: {e}")
+                print(f"FAILED: {e}", flush=True)
+            _dt_qos = _t.perf_counter() - _t0
+            print(f"({_dt_qos:.1f}s)", flush=True)
+        else:
+            print(f"            [5/5] QoS downstream... skipped", flush=True)
+
+        # Summary line
+        _dt_total = _dt_geo + _dt_raw + _dt_kpi + _dt_multi + _dt_qos
+        print(
+            f"          total={_dt_total:.1f}s "
+            f"(geo={_dt_geo:.1f} raw={_dt_raw:.1f} kpi={_dt_kpi:.1f} "
+            f"multi={_dt_multi:.1f} qos={_dt_qos:.1f})",
+            flush=True,
+        )
 
         return row
 

@@ -10,12 +10,19 @@ Classification models are evaluated on derived classification targets.
 
 Output key convention: ``{model}_{metric}_{target}``
     e.g. ``rf_rmse_cov_area_4G``, ``knn_accuracy_concentrated_mobile_market``
+
+Performance notes:
+- RF and KNN use n_jobs=1 because outer parallelism (across targets) is more
+  efficient than inner parallelism (within a single model fit).
+- GBT uses 50 estimators (inherently sequential — cannot parallelize across trees).
+- Targets are evaluated in parallel using joblib when there are >=3 targets.
 """
 
 from __future__ import annotations
 
+import os
 import warnings
-from typing import Dict
+from typing import Dict, List, Tuple
 
 import numpy as np
 
@@ -31,6 +38,12 @@ from sklearn.metrics import (
 )
 
 
+# Number of parallel workers for target-level parallelism.
+# When using outer parallelism, individual models use n_jobs=1 to avoid
+# over-subscription.  Set CORESET_EVAL_NJOBS env var to override.
+_N_WORKERS = int(os.environ.get("CORESET_EVAL_NJOBS", "4"))
+
+
 # ── Model registries ────────────────────────────────────────────────────
 
 def _regression_models(seed: int) -> Dict[str, object]:
@@ -41,7 +54,7 @@ def _regression_models(seed: int) -> Dict[str, object]:
             n_estimators=100, max_depth=10, random_state=seed, n_jobs=1,
         ),
         "gbt": GradientBoostingRegressor(
-            n_estimators=100, max_depth=5, random_state=seed,
+            n_estimators=50, max_depth=5, random_state=seed,
         ),
     }
 
@@ -57,7 +70,7 @@ def _classification_models(seed: int) -> Dict[str, object]:
             max_iter=1000, random_state=seed, n_jobs=1,
         ),
         "gbt": GradientBoostingClassifier(
-            n_estimators=100, max_depth=5, random_state=seed,
+            n_estimators=50, max_depth=5, random_state=seed,
         ),
     }
 
@@ -178,29 +191,65 @@ def evaluate_all_downstream_models(
     Dict[str, float]
         Flat dict of metrics keyed as ``{model}_{metric}_{target}``.
     """
-    results: Dict[str, float] = {}
-
-    # Regression targets
+    # ── Prepare (target_name, y_tr, y_te, task_type) tuples ──
+    reg_tasks: List[Tuple[str, np.ndarray, np.ndarray]] = []
     for tname, y_full in regression_targets.items():
         y_full = np.asarray(y_full, dtype=np.float64)
-        # Check for valid target values
         y_tr = y_full[eval_train_idx]
         y_te = y_full[eval_test_idx]
         if not np.all(np.isfinite(y_tr)) or not np.all(np.isfinite(y_te)):
-            # Skip targets with non-finite values in train/test
             n_bad = int(np.sum(~np.isfinite(y_tr))) + int(np.sum(~np.isfinite(y_te)))
             print(f"[multi_model] WARNING: regression target '{tname}' "
                   f"has {n_bad} non-finite values — skipping")
             continue
-        r = _evaluate_regression_target(Phi_train, Phi_test, y_tr, y_te, tname, seed)
-        results.update(r)
+        reg_tasks.append((tname, y_tr, y_te))
 
-    # Classification targets
+    cls_tasks: List[Tuple[str, np.ndarray, np.ndarray]] = []
     for tname, y_full in classification_targets.items():
         y_full = np.asarray(y_full, dtype=np.int64)
         y_tr = y_full[eval_train_idx]
         y_te = y_full[eval_test_idx]
+        cls_tasks.append((tname, y_tr, y_te))
+
+    total_tasks = len(reg_tasks) + len(cls_tasks)
+    n_workers = min(_N_WORKERS, total_tasks) if total_tasks > 0 else 1
+
+    # ── Parallel evaluation across targets ──
+    if n_workers > 1 and total_tasks >= 3:
+        from joblib import Parallel, delayed
+
+        def _run_reg(tname, y_tr, y_te):
+            return _evaluate_regression_target(
+                Phi_train, Phi_test, y_tr, y_te, tname, seed,
+            )
+
+        def _run_cls(tname, y_tr, y_te):
+            return _evaluate_classification_target(
+                Phi_train, Phi_test, y_tr, y_te, tname, seed,
+            )
+
+        jobs = (
+            [delayed(_run_reg)(t, ytr, yte) for t, ytr, yte in reg_tasks]
+            + [delayed(_run_cls)(t, ytr, yte) for t, ytr, yte in cls_tasks]
+        )
+
+        partial_results = Parallel(
+            n_jobs=n_workers,
+            backend="loky",
+            prefer="processes",
+        )(jobs)
+
+        results: Dict[str, float] = {}
+        for r in partial_results:
+            results.update(r)
+        return results
+
+    # ── Sequential fallback ──
+    results: Dict[str, float] = {}
+    for tname, y_tr, y_te in reg_tasks:
+        r = _evaluate_regression_target(Phi_train, Phi_test, y_tr, y_te, tname, seed)
+        results.update(r)
+    for tname, y_tr, y_te in cls_tasks:
         r = _evaluate_classification_target(Phi_train, Phi_test, y_tr, y_te, tname, seed)
         results.update(r)
-
     return results
