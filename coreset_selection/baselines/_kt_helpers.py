@@ -154,28 +154,31 @@ def _kt_split_X(
                 parent_idx = (i + 1) // num_parent_coresets
 
                 # Last two points from parent
-                point1 = parent_coreset[parent_idx - 2, np.newaxis]
-                point2 = parent_coreset[parent_idx - 1, np.newaxis]
-                K12 = k(point1, point2)
+                # Use scalar indices for diagK lookups; wrap in arrays for k()
+                p1_idx = int(parent_coreset[parent_idx - 2])
+                p2_idx = int(parent_coreset[parent_idx - 1])
+                point1 = np.array([p1_idx])
+                point2 = np.array([p2_idx])
+                K12_val = float(k(point1, point2).ravel()[0])
 
-                b_sqd = diagK[point2] + diagK[point1] - 2.0 * K12
+                b_sqd = float(diagK[p2_idx]) + float(diagK[p1_idx]) - 2.0 * K12_val
                 thresh = max(
                     np.sqrt(sig_sqd[j][j2] * b_sqd * j_log_multiplier),
                     b_sqd,
                 )
 
                 if sig_sqd[j][j2] == 0:
-                    sig_sqd[j][j2] = float(b_sqd)
+                    sig_sqd[j][j2] = b_sqd
                 elif thresh != 0:
                     sig_sqd_update = 0.5 + (b_sqd / (2.0 * thresh) - 1.0) * sig_sqd[j][j2] / thresh
                     if sig_sqd_update > 0:
-                        sig_sqd[j][j2] += float(2.0 * b_sqd * sig_sqd_update)
+                        sig_sqd[j][j2] += 2.0 * b_sqd * sig_sqd_update
 
                 if thresh == 0:
                     thresh = 1.0
 
                 if parent_idx > 2:
-                    alpha = parent_KC[j2, parent_idx - 2] - parent_KC[j2, parent_idx - 1] + float(K12)
+                    alpha = parent_KC[j2, parent_idx - 2] - parent_KC[j2, parent_idx - 1] + K12_val
                 else:
                     alpha = 0.0
 
@@ -194,13 +197,13 @@ def _kt_split_X(
 
                 prob_point2 = 0.5 * (1.0 - alpha / thresh)
                 if rng.random() <= prob_point2:
-                    left_child_coreset[child_idx] = point2
-                    right_child_coreset[child_idx] = point1
+                    left_child_coreset[child_idx] = p2_idx
+                    right_child_coreset[child_idx] = p1_idx
                     child_KC[2 * j2, child_idx] = point2_kernel_sum
                     child_KC[2 * j2 + 1, child_idx] = point1_kernel_sum
                 else:
-                    left_child_coreset[child_idx] = point1
-                    right_child_coreset[child_idx] = point2
+                    left_child_coreset[child_idx] = p1_idx
+                    right_child_coreset[child_idx] = p2_idx
                     child_KC[2 * j2, child_idx] = point1_kernel_sum
                     child_KC[2 * j2 + 1, child_idx] = point2_kernel_sum
 
@@ -347,7 +350,7 @@ def _kt_refine_X(
             else:
                 kcidxcore = kernel(X[cidx, np.newaxis], X[coreset])
                 sufficient_stat[cidx] = (
-                    float(kernel(X[cidx, np.newaxis], X[cidx, np.newaxis])) / float(coreset_size)
+                    float(kernel(X[cidx, np.newaxis], X[cidx, np.newaxis]).ravel()[0]) / float(coreset_size)
                     - 2.0 * float(meanK[cidx])
                     + 2.0 * float(np.mean(kcidxcore))
                 )
