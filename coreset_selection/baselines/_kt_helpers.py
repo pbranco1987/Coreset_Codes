@@ -100,6 +100,8 @@ def _kt_split_X(
     seed: Optional[int] = None,
 ) -> np.ndarray:
     """KT-SPLIT (O(nd) memory) – returns 2^m candidate coresets."""
+    import time as _time
+
     if m == 0:
         return np.arange(X.shape[0], dtype=int)[np.newaxis, :]
 
@@ -125,7 +127,15 @@ def _kt_split_X(
 
     diagK = np.empty(n, dtype=np.float64)
 
+    _t_split_start = _time.perf_counter()
+    _pct_step = max(1, n // 10)  # print every 10%
     for i in range(n):
+        if i > 0 and i % _pct_step == 0:
+            _elapsed = _time.perf_counter() - _t_split_start
+            print(
+                f"              KT-SPLIT {i}/{n} ({100*i//n}%, {_elapsed:.0f}s)",
+                flush=True,
+            )
         # Add each datapoint to coreset[0][0]
         coreset0 = coresets[0][0]
         coreset0[i] = i
@@ -305,6 +315,8 @@ def _kt_refine_X(
     unique: bool = False,
 ) -> np.ndarray:
     """Greedy coreset refinement (swap each element to reduce MMD)."""
+    import time as _time
+
     n = int(X.shape[0])
     coreset = np.asarray(coreset, dtype=int).copy()
     coreset_size = int(coreset.size)
@@ -316,9 +328,16 @@ def _kt_refine_X(
     coreset_indicator = np.zeros(n, dtype=bool)
     coreset_indicator[coreset] = True
 
+    _t_refine = _time.perf_counter()
+    _pct_step_n = max(1, n // 10)
     if meanK is None:
         sufficient_stat = np.empty(n, dtype=np.float64)
         for ii in range(n):
+            if ii > 0 and ii % _pct_step_n == 0:
+                print(
+                    f"              KT-REFINE init {ii}/{n} ({100*ii//n}%)",
+                    flush=True,
+                )
             if unique and coreset_indicator[ii]:
                 sufficient_stat[ii] = np.inf
             else:
@@ -332,13 +351,28 @@ def _kt_refine_X(
         # kernel(X, X) returns diagonal evaluations (row-wise convention)
         sufficient_stat = kernel(X, X) / float(coreset_size) - 2.0 * meanK
         for ii in range(n):
+            if ii > 0 and ii % _pct_step_n == 0:
+                print(
+                    f"              KT-REFINE init {ii}/{n} ({100*ii//n}%)",
+                    flush=True,
+                )
             if unique and coreset_indicator[ii]:
                 sufficient_stat[ii] = np.inf
             else:
                 kiicore = kernel(X[ii, np.newaxis], X[coreset])
                 sufficient_stat[ii] += 2.0 * float(np.mean(kiicore))
 
+    _elapsed_init = _time.perf_counter() - _t_refine
+    print(f"              KT-REFINE init done ({_elapsed_init:.0f}s), swapping {coreset_size} points...", flush=True)
+
+    _pct_step_cs = max(1, coreset_size // 10)
     for coreset_idx in range(coreset_size):
+        if coreset_idx > 0 and coreset_idx % _pct_step_cs == 0:
+            _elapsed = _time.perf_counter() - _t_refine
+            print(
+                f"              KT-SWAP {coreset_idx}/{coreset_size} ({100*coreset_idx//coreset_size}%, {_elapsed:.0f}s)",
+                flush=True,
+            )
         if unique:
             cidx = int(coreset[coreset_idx])
             if meanK is None:
