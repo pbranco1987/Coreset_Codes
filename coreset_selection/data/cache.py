@@ -29,6 +29,7 @@ statements continue to work unchanged.
 from __future__ import annotations
 
 import os
+from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
@@ -132,7 +133,13 @@ def build_replicate_cache(
             derived_cls: dict = {}
             if raw_df is not None:
                 derived_extra_reg = extract_extra_regression_targets(raw_df)
-                derived_cls = derive_classification_targets(raw_df)
+                # Build metadata JSON path alongside the cache
+                _meta_json_path = str(
+                    Path(cache_path).with_suffix(".cls_metadata.json")
+                )
+                derived_cls = derive_classification_targets(
+                    raw_df, metadata_path=_meta_json_path,
+                )
                 timer.checkpoint(
                     "Derived targets extracted",
                     n_extra_reg=len(derived_extra_reg),
