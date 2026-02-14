@@ -451,7 +451,11 @@ class EvalMixin:
 
                     _bl_extra_reg = assets.metadata.get("extra_regression_targets", {}) if hasattr(assets, "metadata") and isinstance(assets.metadata, dict) else {}
                     _bl_cls = assets.metadata.get("classification_targets", {}) if hasattr(assets, "metadata") and isinstance(assets.metadata, dict) else {}
+                    import time as _time_bl
+                    _t_eval = _time_bl.perf_counter()
+                    print(f"[R6]     evaluating...", end=" ", flush=True)
                     row = self._evaluate_coreset(idx_sel=sel, geo=geo, k=k, raw_evaluator=raw_evaluator, state_labels=assets.state_labels, extra_regression_targets=_bl_extra_reg, classification_targets=_bl_cls)
+                    print(f"done ({_time_bl.perf_counter() - _t_eval:.1f}s)", flush=True)
                     row.update(
                         {
                             "run_id": self.cfg.run_id,

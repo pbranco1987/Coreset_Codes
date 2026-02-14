@@ -20,7 +20,7 @@ Notation (manuscript):
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Dict, Optional, Tuple
 
 import numpy as np
@@ -42,6 +42,21 @@ from ._raw_nystrom import (
     _kfold_indices,
     _select_lambda_ridge,
 )
+
+
+@dataclass
+class _NystromCache:
+    """Cached Nyström decomposition for a single landmark set S."""
+    S_key: int           # hash of S_idx for cache invalidation
+    C: np.ndarray        # (|E|, k)
+    W: np.ndarray        # (k, k)
+    lambda_nys: float
+    K_hat: np.ndarray    # (|E|, |E|)  — only built when needed
+    Phi: np.ndarray      # (|E|, k)
+    Phi_tr: np.ndarray   # (n_train, k)
+    Phi_te: np.ndarray   # (n_test, k)
+    tr_pos: np.ndarray
+    te_pos: np.ndarray
 
 
 @dataclass
@@ -80,6 +95,7 @@ class RawSpaceEvaluator:
     sigma_sq: float
     _K_EE: Optional[np.ndarray] = None
     _seed: int = 0
+    _nys_cache: Optional[_NystromCache] = field(default=None, repr=False)
 
     @property
     def K_EE(self) -> np.ndarray:
@@ -148,33 +164,61 @@ class RawSpaceEvaluator:
         )
 
     # ------------------------------------------------------------------
+    # Nyström cache management
+    # ------------------------------------------------------------------
+
+    def _get_nystrom(self, S_idx: np.ndarray) -> _NystromCache:
+        """Return cached Nyström decomposition for S, recomputing only if S changed."""
+        S_idx = np.asarray(S_idx, dtype=int)
+        s_key = hash(S_idx.tobytes())
+
+        if self._nys_cache is not None and self._nys_cache.S_key == s_key:
+            return self._nys_cache
+
+        X_E = self.X_raw[self.eval_idx]
+        X_S = self.X_raw[S_idx]
+
+        C, W, lambda_nys = _nystrom_components(X_E, X_S, self.sigma_sq)
+        K_hat = _nystrom_approx_gram(C, W, lambda_nys)
+        Phi = _nystrom_features(C, W, lambda_nys)
+
+        # Map absolute indices -> positions within eval_idx
+        N = self.X_raw.shape[0]
+        pos = np.full(N, -1, dtype=int)
+        pos[self.eval_idx] = np.arange(self.eval_idx.size, dtype=int)
+
+        tr_pos = pos[self.eval_train_idx]
+        te_pos = pos[self.eval_test_idx]
+        tr_pos = tr_pos[tr_pos >= 0]
+        te_pos = te_pos[te_pos >= 0]
+
+        cache = _NystromCache(
+            S_key=s_key,
+            C=C, W=W, lambda_nys=lambda_nys,
+            K_hat=K_hat, Phi=Phi,
+            Phi_tr=Phi[tr_pos], Phi_te=Phi[te_pos],
+            tr_pos=tr_pos, te_pos=te_pos,
+        )
+        self._nys_cache = cache
+        return cache
+
+    # ------------------------------------------------------------------
     # Metrics for a landmark set S
     # ------------------------------------------------------------------
 
     def nystrom_error(self, S_idx: np.ndarray) -> float:
         """Relative Frobenius error e_Nys(S)."""
-        S_idx = np.asarray(S_idx, dtype=int)
-        X_E = self.X_raw[self.eval_idx]
-        X_S = self.X_raw[S_idx]
-
-        C, W, lambda_nys = _nystrom_components(X_E, X_S, self.sigma_sq)
-        K_hat = _nystrom_approx_gram(C, W, lambda_nys)
-
-        num = np.linalg.norm(self.K_EE - K_hat, ord="fro")
+        nys = self._get_nystrom(S_idx)
+        num = np.linalg.norm(self.K_EE - nys.K_hat, ord="fro")
         den = np.linalg.norm(self.K_EE, ord="fro") + 1e-30
         return float(num / den)
 
     def kpca_distortion(self, S_idx: np.ndarray, r: int = 20) -> float:
         """Kernel PCA top-r spectral distortion e_kPCA(S)."""
-        S_idx = np.asarray(S_idx, dtype=int)
-        X_E = self.X_raw[self.eval_idx]
-        X_S = self.X_raw[S_idx]
-
-        C, W, lambda_nys = _nystrom_components(X_E, X_S, self.sigma_sq)
-        K_hat = _nystrom_approx_gram(C, W, lambda_nys)
+        nys = self._get_nystrom(S_idx)
 
         Kc = _center_gram(self.K_EE)
-        Kc_hat = _center_gram(K_hat)
+        Kc_hat = _center_gram(nys.K_hat)
 
         # Eigenvalues (ascending), then reverse to descending
         lam = np.linalg.eigvalsh(Kc)[::-1]
@@ -194,41 +238,20 @@ class RawSpaceEvaluator:
         den = np.linalg.norm(v) + 1e-30
         return float(num / den)
 
-    def krr_rmse(self, S_idx: np.ndarray) -> Dict[str, float]:
-        """
-        Nyström-feature KRR evaluation.
+    def _krr_fit_targets(
+        self,
+        Phi_tr: np.ndarray,
+        Phi_te: np.ndarray,
+    ) -> Dict[str, float]:
+        """Fit KRR on all targets using precomputed Phi splits.
 
-        When ``target_names`` is set (multi-target mode), output keys are
-        ``krr_rmse_{name}`` and ``krr_lambda_{name}`` for each named target.
-        Backward-compatible ``krr_rmse_4G`` / ``krr_rmse_5G`` keys are
-        emitted when ``target_names`` is *None* and y has 2 columns.
+        Shared by krr_rmse() and _state_conditioned_stability() to avoid
+        duplicating the 5-fold ridge CV.
 
-        Returns per-target RMSE and the selected ridge lambda (per target).
+        Returns per-target RMSE, lambda, and weight vectors.
         """
         if self.y is None:
-            return {}
-
-        S_idx = np.asarray(S_idx, dtype=int)
-
-        # Map absolute indices -> positions within eval_idx
-        N = self.X_raw.shape[0]
-        pos = np.full(N, -1, dtype=int)
-        pos[self.eval_idx] = np.arange(self.eval_idx.size, dtype=int)
-
-        tr_pos = pos[self.eval_train_idx]
-        te_pos = pos[self.eval_test_idx]
-        tr_pos = tr_pos[tr_pos >= 0]
-        te_pos = te_pos[te_pos >= 0]
-
-        X_E = self.X_raw[self.eval_idx]
-        X_S = self.X_raw[S_idx]
-
-        # Nyström blocks on E
-        C, W, lambda_nys = _nystrom_components(X_E, X_S, self.sigma_sq)
-        Phi = _nystrom_features(C, W, lambda_nys)  # (|E|, k)
-
-        Phi_tr = Phi[tr_pos]
-        Phi_te = Phi[te_pos]
+            return {}, {}
 
         y = np.asarray(self.y)
         if y.ndim == 1:
@@ -236,11 +259,8 @@ class RawSpaceEvaluator:
         y_tr = y[self.eval_train_idx]
         y_te = y[self.eval_test_idx]
 
-        # Fixed logarithmic lambda grid (shared across methods/targets)
         lambdas = np.logspace(-6, 6, 13)
         n_folds = 5
-
-        out: Dict[str, float] = {}
 
         n_targets = y.shape[1]
 
@@ -254,24 +274,22 @@ class RawSpaceEvaluator:
         else:
             names = [str(t) for t in range(n_targets)]
 
-        # Evaluate each target separately
+        out: Dict[str, float] = {}
+        # Store predictions for reuse by stability metrics
+        predictions: Dict[int, Tuple[np.ndarray, np.ndarray]] = {}  # t -> (y_hat_te, best_lam)
+
         for t in range(n_targets):
             yt_tr = np.asarray(y_tr[:, t], dtype=np.float64)
             yt_te = np.asarray(y_te[:, t], dtype=np.float64)
 
             best_lam = _select_lambda_ridge(
-                Phi_tr,
-                yt_tr,
-                lambdas=lambdas,
-                n_folds=n_folds,
-                seed=12345 + t,  # fixed, replicate-independent seed per target
+                Phi_tr, yt_tr, lambdas=lambdas, n_folds=n_folds,
+                seed=12345 + t,
             )
 
-            # Fit on full E_train
             A = Phi_tr.T @ Phi_tr + float(best_lam) * np.eye(Phi_tr.shape[1])
             b = Phi_tr.T @ yt_tr
             w, _ = _safe_cholesky_solve(A, b)
-
             y_hat = Phi_te @ w
             rmse = _rmse(yt_te, y_hat)
 
@@ -285,6 +303,7 @@ class RawSpaceEvaluator:
 
             out[key_rmse] = float(rmse)
             out[key_lam] = float(best_lam)
+            predictions[t] = (y_hat, best_lam)
 
         # Aggregated RMSE across all targets
         rmse_vals = [v for k, v in out.items() if k.startswith("krr_rmse") and not k.endswith("mean")]
@@ -300,6 +319,23 @@ class RawSpaceEvaluator:
                 out.setdefault("krr_rmse_5G", out["krr_rmse_cov_area_5G"])
                 out.setdefault("krr_lambda_5G", out["krr_lambda_cov_area_5G"])
 
+        return out, predictions
+
+    def krr_rmse(self, S_idx: np.ndarray) -> Dict[str, float]:
+        """
+        Nyström-feature KRR evaluation.
+
+        When ``target_names`` is set (multi-target mode), output keys are
+        ``krr_rmse_{name}`` and ``krr_lambda_{name}`` for each named target.
+        Backward-compatible ``krr_rmse_4G`` / ``krr_rmse_5G`` keys are
+        emitted when ``target_names`` is *None* and y has 2 columns.
+
+        Returns per-target RMSE and the selected ridge lambda (per target).
+        """
+        if self.y is None:
+            return {}
+        nys = self._get_nystrom(S_idx)
+        out, _predictions = self._krr_fit_targets(nys.Phi_tr, nys.Phi_te)
         return out
 
     def all_metrics(self, S_idx: np.ndarray) -> Dict[str, float]:
@@ -332,6 +368,9 @@ class RawSpaceEvaluator:
         These metrics assess whether landmark quality is consistent across
         geographic regions (manuscript Section V-E).
 
+        Optimized: computes Nyström features and KRR once, reusing predictions
+        for both krr_rmse and stability metrics.
+
         Parameters
         ----------
         S_idx : np.ndarray
@@ -344,26 +383,40 @@ class RawSpaceEvaluator:
         Dict[str, float]
             All base metrics plus stability metrics
         """
-        out = self.all_metrics(S_idx)
-        stability = self._state_conditioned_stability(S_idx, state_labels)
+        S_idx = np.asarray(S_idx, dtype=int)
+        nys = self._get_nystrom(S_idx)
+
+        out: Dict[str, float] = {}
+
+        # Nyström error + kPCA distortion (share cached K_hat)
+        out["nystrom_error"] = self.nystrom_error(S_idx)
+        out["kpca_distortion"] = self.kpca_distortion(S_idx, r=20)
+
+        # KRR fit once — get both metrics and predictions
+        krr_out, predictions = self._krr_fit_targets(nys.Phi_tr, nys.Phi_te)
+        out.update(krr_out)
+        out["sigma_sq_raw"] = float(self.sigma_sq)
+
+        # State-conditioned stability reusing predictions from KRR
+        stability = self._state_conditioned_stability_from_predictions(
+            predictions, state_labels,
+        )
         out.update(stability)
+
         return out
 
-    def _state_conditioned_stability(
+    def _state_conditioned_stability_from_predictions(
         self,
-        S_idx: np.ndarray,
+        predictions: Dict[int, Tuple[np.ndarray, float]],
         state_labels: np.ndarray,
     ) -> Dict[str, float]:
-        """State-conditioned KPI stability via split-half test analysis.
+        """State-conditioned KPI stability using precomputed KRR predictions.
 
         Splits E_test into two halves (stratified by state) and computes
         per-state RMSE independently on each half. Then measures ranking
         agreement (Kendall's tau) and absolute drift.
 
-        Also computes the *incremental downstream metrics* recommended
-        by the kernel k-means comparison analysis (integrated in-place
-        to avoid a redundant KRR fit):
-
+        Also computes the *incremental downstream metrics*:
           - Tail absolute errors: P90, P95, P99 of |y - ŷ|
           - Overall MAE and R²
           - Per-state MAE and R² (alongside existing per-state RMSE)
@@ -373,66 +426,27 @@ class RawSpaceEvaluator:
         """
         from scipy.stats import kendalltau
 
-        if self.y is None:
+        if self.y is None or not predictions:
             return {}
 
-        S_idx = np.asarray(S_idx, dtype=int)
         state_labels = np.asarray(state_labels)
-
-        # Build Nyström features on E
-        X_E = self.X_raw[self.eval_idx]
-        X_S = self.X_raw[S_idx]
-        C, W, lambda_nys = _nystrom_components(X_E, X_S, self.sigma_sq)
-        Phi = _nystrom_features(C, W, lambda_nys)
-
-        # Map positions
-        N = self.X_raw.shape[0]
-        pos = np.full(N, -1, dtype=int)
-        pos[self.eval_idx] = np.arange(self.eval_idx.size, dtype=int)
-
-        tr_pos = pos[self.eval_train_idx]
-        te_pos = pos[self.eval_test_idx]
-        tr_pos = tr_pos[tr_pos >= 0]
-        te_pos = te_pos[te_pos >= 0]
-
-        Phi_tr = Phi[tr_pos]
-        Phi_te = Phi[te_pos]
 
         y = np.asarray(self.y)
         if y.ndim == 1:
             y = y.reshape(-1, 1)
-        y_tr = y[self.eval_train_idx]
         y_te = y[self.eval_test_idx]
 
-        # State labels for test set
         te_states = state_labels[self.eval_test_idx]
         unique_states = np.unique(te_states)
         if unique_states.size < 2:
             return {}
 
-        # Ridge lambda (reuse same grid as krr_rmse)
-        lambdas = np.logspace(-6, 6, 13)
         out: Dict[str, float] = {}
 
-        for t in range(y.shape[1]):
-            yt_tr = np.asarray(y_tr[:, t], dtype=np.float64)
+        for t, (y_hat_te, best_lam) in predictions.items():
             yt_te = np.asarray(y_te[:, t], dtype=np.float64)
 
-            best_lam = _select_lambda_ridge(
-                Phi_tr, yt_tr, lambdas=lambdas, n_folds=5, seed=12345 + t,
-            )
-
-            # Fit on full E_train
-            A = Phi_tr.T @ Phi_tr + float(best_lam) * np.eye(Phi_tr.shape[1])
-            b = Phi_tr.T @ yt_tr
-            w, _ = _safe_cholesky_solve(A, b)
-            y_hat_te = Phi_te @ w
-
             suffix = "" if y.shape[1] == 1 else ("_4G" if t == 0 else "_5G")
-
-            # =============================================================
-            # Incremental downstream metrics (from same y_hat_te)
-            # =============================================================
 
             # --- Global metrics: tail errors, MAE, R² ---
             abs_errs = np.abs(yt_te - y_hat_te)
@@ -483,11 +497,7 @@ class RawSpaceEvaluator:
                 out[f"best_group_r2{suffix}"] = float(np.max(r2_vals))
                 out[f"n_groups_evaluated{suffix}"] = len(rmse_vals)
 
-            # =============================================================
-            # Original split-half stability metrics
-            # =============================================================
-
-            # Split-half stability: split test set into two halves per state
+            # --- Split-half stability ---
             rng = np.random.default_rng(self._seed + 9999 + t)
             half1_rmses = {}
             half2_rmses = {}
@@ -523,6 +533,23 @@ class RawSpaceEvaluator:
 
         return out
 
+    def _state_conditioned_stability(
+        self,
+        S_idx: np.ndarray,
+        state_labels: np.ndarray,
+    ) -> Dict[str, float]:
+        """Legacy wrapper — computes Nyström and KRR, then delegates.
+
+        Prefer all_metrics_with_state_stability() for the optimized path.
+        """
+        if self.y is None:
+            return {}
+        nys = self._get_nystrom(S_idx)
+        _krr_out, predictions = self._krr_fit_targets(nys.Phi_tr, nys.Phi_te)
+        return self._state_conditioned_stability_from_predictions(
+            predictions, state_labels,
+        )
+
     def multi_model_downstream(
         self,
         S_idx: np.ndarray,
@@ -532,7 +559,7 @@ class RawSpaceEvaluator:
     ) -> Dict[str, float]:
         """Extended downstream evaluation using multiple models on Nyström features.
 
-        Computes Nyström features Phi once for landmark set S, then trains
+        Computes Nyström features once (cached) for landmark set S, then trains
         KNN / RF / LR / GBT on the train portion of E for each regression
         and classification target.
 
@@ -554,30 +581,11 @@ class RawSpaceEvaluator:
         """
         from .multi_model_evaluator import evaluate_all_downstream_models
 
-        S_idx = np.asarray(S_idx, dtype=int)
-
-        # Map absolute indices → positions within eval_idx
-        N = self.X_raw.shape[0]
-        pos = np.full(N, -1, dtype=int)
-        pos[self.eval_idx] = np.arange(self.eval_idx.size, dtype=int)
-
-        tr_pos = pos[self.eval_train_idx]
-        te_pos = pos[self.eval_test_idx]
-        tr_pos = tr_pos[tr_pos >= 0]
-        te_pos = te_pos[te_pos >= 0]
-
-        # Compute Nyström features on E (reuse same kernel bandwidth)
-        X_E = self.X_raw[self.eval_idx]
-        X_S = self.X_raw[S_idx]
-        C, W, lambda_nys = _nystrom_components(X_E, X_S, self.sigma_sq)
-        Phi = _nystrom_features(C, W, lambda_nys)
-
-        Phi_train = Phi[tr_pos]
-        Phi_test = Phi[te_pos]
+        nys = self._get_nystrom(S_idx)
 
         return evaluate_all_downstream_models(
-            Phi_train=Phi_train,
-            Phi_test=Phi_test,
+            Phi_train=nys.Phi_tr,
+            Phi_test=nys.Phi_te,
             eval_train_idx=self.eval_train_idx,
             eval_test_idx=self.eval_test_idx,
             regression_targets=regression_targets,

@@ -110,9 +110,10 @@ def greedy_kdpp_from_features(
             # marginal gain ∝ ||φᵢ - proj_Q(φᵢ)||²
             # where Q spans already selected points
             Q_active = Q[:, :t]
-            projections = Phi_norm @ Q_active @ Q_active.T @ Phi_norm.T
-            proj_norms_sq = np.diag(projections)
-            
+            # Fast diagonal: ||proj_Q(φᵢ)||² = sum_j (φᵢ·q_j)² per row
+            proj = Phi_norm @ Q_active          # (n, t) — O(n·t)
+            proj_norms_sq = np.sum(proj ** 2, axis=1)  # (n,) — O(n·t)
+
             # Residual norm squared (diversity component)
             residual_sq = 1.0 - proj_norms_sq
             residual_sq = np.maximum(residual_sq, 0)
@@ -124,8 +125,8 @@ def greedy_kdpp_from_features(
             scores = quality * residual_sq
         
         # Mask out already selected
-        for idx in selected:
-            scores[idx] = -np.inf
+        if selected:
+            scores[selected] = -np.inf
         
         # Select best
         max_score = np.max(scores)
