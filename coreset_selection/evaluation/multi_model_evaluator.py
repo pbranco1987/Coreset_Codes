@@ -13,11 +13,15 @@ Output key convention: ``{model}_{metric}_{target}``
 
 Performance notes:
 - GBT uses 50 estimators (inherently sequential — cannot parallelize across trees).
-- Verbose per-model progress printed so the user sees exactly where execution is.
+- By default, targets are evaluated in parallel via joblib (4 workers).
+  Set CORESET_EVAL_NJOBS=1 for sequential mode with full per-model verbose output.
+- In parallel mode: a compact progress bar per batch is printed.
+- In sequential mode: each model x target prints its own line with timing.
 """
 
 from __future__ import annotations
 
+import os
 import time as _time
 import warnings
 from typing import Dict, List, Tuple
@@ -34,6 +38,11 @@ from sklearn.metrics import (
     mean_squared_error, mean_absolute_error, r2_score,
     accuracy_score, balanced_accuracy_score, f1_score,
 )
+
+
+# Number of parallel workers for target-level parallelism.
+# Set CORESET_EVAL_NJOBS=1 for fully sequential + verbose per-model output.
+_N_WORKERS = int(os.environ.get("CORESET_EVAL_NJOBS", "4"))
 
 
 # ── Model registries ────────────────────────────────────────────────────
@@ -67,7 +76,7 @@ def _classification_models(seed: int) -> Dict[str, object]:
     }
 
 
-# ── Single-target evaluation (with per-model progress) ─────────────────
+# ── Single-target evaluation ───────────────────────────────────────────
 
 def _evaluate_regression_target(
     Phi_train: np.ndarray,
@@ -79,6 +88,7 @@ def _evaluate_regression_target(
     *,
     task_idx: int = 0,
     task_total: int = 0,
+    verbose: bool = False,
 ) -> Dict[str, float]:
     """Train all regression models on one target and return metrics."""
     results: Dict[str, float] = {}
@@ -86,7 +96,8 @@ def _evaluate_regression_target(
     prefix = f"              reg {task_idx}/{task_total}" if task_total else "              reg"
 
     for model_name, estimator in models.items():
-        print(f"{prefix} {target_name} × {model_name}...", end=" ", flush=True)
+        if verbose:
+            print(f"{prefix} {target_name} x {model_name}...", end=" ", flush=True)
         _t0 = _time.perf_counter()
         try:
             with warnings.catch_warnings():
@@ -101,11 +112,13 @@ def _evaluate_regression_target(
             results[f"{model_name}_rmse_{target_name}"] = rmse
             results[f"{model_name}_mae_{target_name}"] = mae
             results[f"{model_name}_r2_{target_name}"] = r2
-            _dt = _time.perf_counter() - _t0
-            print(f"({_dt:.1f}s)", flush=True)
+            if verbose:
+                _dt = _time.perf_counter() - _t0
+                print(f"({_dt:.1f}s)", flush=True)
         except Exception as e:
-            _dt = _time.perf_counter() - _t0
-            print(f"FAILED ({_dt:.1f}s): {e}", flush=True)
+            if verbose:
+                _dt = _time.perf_counter() - _t0
+                print(f"FAILED ({_dt:.1f}s): {e}", flush=True)
 
     return results
 
@@ -120,6 +133,7 @@ def _evaluate_classification_target(
     *,
     task_idx: int = 0,
     task_total: int = 0,
+    verbose: bool = False,
 ) -> Dict[str, float]:
     """Train all classification models on one target and return metrics."""
     results: Dict[str, float] = {}
@@ -129,11 +143,13 @@ def _evaluate_classification_target(
     # Check for degenerate targets (single class in train or test)
     n_classes_train = len(np.unique(y_train))
     if n_classes_train < 2:
-        print(f"{prefix} {target_name} — skipped (only {n_classes_train} class)", flush=True)
+        if verbose:
+            print(f"{prefix} {target_name} -- skipped (only {n_classes_train} class)", flush=True)
         return results
 
     for model_name, estimator in models.items():
-        print(f"{prefix} {target_name} × {model_name}...", end=" ", flush=True)
+        if verbose:
+            print(f"{prefix} {target_name} x {model_name}...", end=" ", flush=True)
         _t0 = _time.perf_counter()
         try:
             with warnings.catch_warnings():
@@ -143,7 +159,6 @@ def _evaluate_classification_target(
 
             acc = float(accuracy_score(y_test, y_pred))
             bal_acc = float(balanced_accuracy_score(y_test, y_pred))
-            # macro_f1 handles multiclass via macro-averaging
             macro_f1 = float(f1_score(
                 y_test, y_pred, average="macro", zero_division=0,
             ))
@@ -151,11 +166,13 @@ def _evaluate_classification_target(
             results[f"{model_name}_accuracy_{target_name}"] = acc
             results[f"{model_name}_bal_accuracy_{target_name}"] = bal_acc
             results[f"{model_name}_macro_f1_{target_name}"] = macro_f1
-            _dt = _time.perf_counter() - _t0
-            print(f"({_dt:.1f}s)", flush=True)
+            if verbose:
+                _dt = _time.perf_counter() - _t0
+                print(f"({_dt:.1f}s)", flush=True)
         except Exception as e:
-            _dt = _time.perf_counter() - _t0
-            print(f"FAILED ({_dt:.1f}s): {e}", flush=True)
+            if verbose:
+                _dt = _time.perf_counter() - _t0
+                print(f"FAILED ({_dt:.1f}s): {e}", flush=True)
 
     return results
 
@@ -195,9 +212,7 @@ def evaluate_all_downstream_models(
     Dict[str, float]
         Flat dict of metrics keyed as ``{model}_{metric}_{target}``.
     """
-    results: Dict[str, float] = {}
-
-    # ── Regression targets ──
+    # ── Prepare tasks ──
     reg_tasks: List[Tuple[str, np.ndarray, np.ndarray]] = []
     for tname, y_full in regression_targets.items():
         y_full = np.asarray(y_full, dtype=np.float64)
@@ -206,7 +221,7 @@ def evaluate_all_downstream_models(
         if not np.all(np.isfinite(y_tr)) or not np.all(np.isfinite(y_te)):
             n_bad = int(np.sum(~np.isfinite(y_tr))) + int(np.sum(~np.isfinite(y_te)))
             print(f"[multi_model] WARNING: regression target '{tname}' "
-                  f"has {n_bad} non-finite values — skipping")
+                  f"has {n_bad} non-finite values -- skipping")
             continue
         reg_tasks.append((tname, y_tr, y_te))
 
@@ -219,18 +234,64 @@ def evaluate_all_downstream_models(
 
     n_reg = len(reg_tasks)
     n_cls = len(cls_tasks)
+    total_tasks = n_reg + n_cls
+    n_workers = min(_N_WORKERS, total_tasks) if total_tasks > 0 else 1
 
+    # ── Parallel path (joblib multiprocessing — real CPU parallelism) ──
+    if n_workers > 1 and total_tasks >= 3:
+        from joblib import Parallel, delayed
+
+        print(
+            f"              parallel: {n_reg} reg + {n_cls} cls targets, "
+            f"{n_workers} workers...",
+            end=" ", flush=True,
+        )
+        _t0 = _time.perf_counter()
+
+        def _run_reg(tname, y_tr, y_te):
+            return _evaluate_regression_target(
+                Phi_train, Phi_test, y_tr, y_te, tname, seed,
+                verbose=False,
+            )
+
+        def _run_cls(tname, y_tr, y_te):
+            return _evaluate_classification_target(
+                Phi_train, Phi_test, y_tr, y_te, tname, seed,
+                verbose=False,
+            )
+
+        jobs = (
+            [delayed(_run_reg)(t, ytr, yte) for t, ytr, yte in reg_tasks]
+            + [delayed(_run_cls)(t, ytr, yte) for t, ytr, yte in cls_tasks]
+        )
+
+        partial_results = Parallel(
+            n_jobs=n_workers,
+            backend="loky",
+            prefer="processes",
+        )(jobs)
+
+        results: Dict[str, float] = {}
+        for r in partial_results:
+            results.update(r)
+
+        _dt = _time.perf_counter() - _t0
+        print(f"done ({_dt:.1f}s)", flush=True)
+        return results
+
+    # ── Sequential path (CORESET_EVAL_NJOBS=1 — full per-model verbose) ──
+    results: Dict[str, float] = {}
     for i, (tname, y_tr, y_te) in enumerate(reg_tasks, 1):
         r = _evaluate_regression_target(
             Phi_train, Phi_test, y_tr, y_te, tname, seed,
-            task_idx=i, task_total=n_reg,
+            task_idx=i, task_total=n_reg, verbose=True,
         )
         results.update(r)
 
     for i, (tname, y_tr, y_te) in enumerate(cls_tasks, 1):
         r = _evaluate_classification_target(
             Phi_train, Phi_test, y_tr, y_te, tname, seed,
-            task_idx=i, task_total=n_cls,
+            task_idx=i, task_total=n_cls, verbose=True,
         )
         results.update(r)
 
