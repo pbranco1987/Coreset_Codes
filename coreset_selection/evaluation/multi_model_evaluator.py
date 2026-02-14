@@ -54,7 +54,7 @@ def _classification_models(seed: int) -> Dict[str, object]:
             n_estimators=100, random_state=seed, n_jobs=1,
         ),
         "lr": LogisticRegression(
-            max_iter=1000, multi_class="auto", random_state=seed, n_jobs=1,
+            max_iter=1000, random_state=seed, n_jobs=1,
         ),
         "gbt": GradientBoostingClassifier(
             n_estimators=100, max_depth=5, random_state=seed,
