@@ -12,15 +12,13 @@ Output key convention: ``{model}_{metric}_{target}``
     e.g. ``rf_rmse_cov_area_4G``, ``knn_accuracy_concentrated_mobile_market``
 
 Performance notes:
-- RF and KNN use n_jobs=1 because outer parallelism (across targets) is more
-  efficient than inner parallelism (within a single model fit).
 - GBT uses 50 estimators (inherently sequential — cannot parallelize across trees).
-- Targets are evaluated in parallel using joblib when there are >=3 targets.
+- Verbose per-model progress printed so the user sees exactly where execution is.
 """
 
 from __future__ import annotations
 
-import os
+import time as _time
 import warnings
 from typing import Dict, List, Tuple
 
@@ -36,12 +34,6 @@ from sklearn.metrics import (
     mean_squared_error, mean_absolute_error, r2_score,
     accuracy_score, balanced_accuracy_score, f1_score,
 )
-
-
-# Number of parallel workers for target-level parallelism.
-# When using outer parallelism, individual models use n_jobs=1 to avoid
-# over-subscription.  Set CORESET_EVAL_NJOBS env var to override.
-_N_WORKERS = int(os.environ.get("CORESET_EVAL_NJOBS", "4"))
 
 
 # ── Model registries ────────────────────────────────────────────────────
@@ -75,7 +67,7 @@ def _classification_models(seed: int) -> Dict[str, object]:
     }
 
 
-# ── Single-target evaluation ────────────────────────────────────────────
+# ── Single-target evaluation (with per-model progress) ─────────────────
 
 def _evaluate_regression_target(
     Phi_train: np.ndarray,
@@ -84,12 +76,18 @@ def _evaluate_regression_target(
     y_test: np.ndarray,
     target_name: str,
     seed: int,
+    *,
+    task_idx: int = 0,
+    task_total: int = 0,
 ) -> Dict[str, float]:
     """Train all regression models on one target and return metrics."""
     results: Dict[str, float] = {}
     models = _regression_models(seed)
+    prefix = f"              reg {task_idx}/{task_total}" if task_total else "              reg"
 
     for model_name, estimator in models.items():
+        print(f"{prefix} {target_name} × {model_name}...", end=" ", flush=True)
+        _t0 = _time.perf_counter()
         try:
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
@@ -103,11 +101,11 @@ def _evaluate_regression_target(
             results[f"{model_name}_rmse_{target_name}"] = rmse
             results[f"{model_name}_mae_{target_name}"] = mae
             results[f"{model_name}_r2_{target_name}"] = r2
+            _dt = _time.perf_counter() - _t0
+            print(f"({_dt:.1f}s)", flush=True)
         except Exception as e:
-            # Log but don't crash — a single model failure shouldn't
-            # abort the entire evaluation
-            print(f"[multi_model] WARNING: {model_name} failed on "
-                  f"regression target '{target_name}': {e}")
+            _dt = _time.perf_counter() - _t0
+            print(f"FAILED ({_dt:.1f}s): {e}", flush=True)
 
     return results
 
@@ -119,20 +117,24 @@ def _evaluate_classification_target(
     y_test: np.ndarray,
     target_name: str,
     seed: int,
+    *,
+    task_idx: int = 0,
+    task_total: int = 0,
 ) -> Dict[str, float]:
     """Train all classification models on one target and return metrics."""
     results: Dict[str, float] = {}
     models = _classification_models(seed)
+    prefix = f"              cls {task_idx}/{task_total}" if task_total else "              cls"
 
     # Check for degenerate targets (single class in train or test)
     n_classes_train = len(np.unique(y_train))
-    n_classes_test = len(np.unique(y_test))
     if n_classes_train < 2:
-        print(f"[multi_model] WARNING: classification target '{target_name}' "
-              f"has only {n_classes_train} class(es) in train — skipping")
+        print(f"{prefix} {target_name} — skipped (only {n_classes_train} class)", flush=True)
         return results
 
     for model_name, estimator in models.items():
+        print(f"{prefix} {target_name} × {model_name}...", end=" ", flush=True)
+        _t0 = _time.perf_counter()
         try:
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
@@ -149,9 +151,11 @@ def _evaluate_classification_target(
             results[f"{model_name}_accuracy_{target_name}"] = acc
             results[f"{model_name}_bal_accuracy_{target_name}"] = bal_acc
             results[f"{model_name}_macro_f1_{target_name}"] = macro_f1
+            _dt = _time.perf_counter() - _t0
+            print(f"({_dt:.1f}s)", flush=True)
         except Exception as e:
-            print(f"[multi_model] WARNING: {model_name} failed on "
-                  f"classification target '{target_name}': {e}")
+            _dt = _time.perf_counter() - _t0
+            print(f"FAILED ({_dt:.1f}s): {e}", flush=True)
 
     return results
 
@@ -191,7 +195,9 @@ def evaluate_all_downstream_models(
     Dict[str, float]
         Flat dict of metrics keyed as ``{model}_{metric}_{target}``.
     """
-    # ── Prepare (target_name, y_tr, y_te, task_type) tuples ──
+    results: Dict[str, float] = {}
+
+    # ── Regression targets ──
     reg_tasks: List[Tuple[str, np.ndarray, np.ndarray]] = []
     for tname, y_full in regression_targets.items():
         y_full = np.asarray(y_full, dtype=np.float64)
@@ -211,45 +217,21 @@ def evaluate_all_downstream_models(
         y_te = y_full[eval_test_idx]
         cls_tasks.append((tname, y_tr, y_te))
 
-    total_tasks = len(reg_tasks) + len(cls_tasks)
-    n_workers = min(_N_WORKERS, total_tasks) if total_tasks > 0 else 1
+    n_reg = len(reg_tasks)
+    n_cls = len(cls_tasks)
 
-    # ── Parallel evaluation across targets ──
-    if n_workers > 1 and total_tasks >= 3:
-        from joblib import Parallel, delayed
-
-        def _run_reg(tname, y_tr, y_te):
-            return _evaluate_regression_target(
-                Phi_train, Phi_test, y_tr, y_te, tname, seed,
-            )
-
-        def _run_cls(tname, y_tr, y_te):
-            return _evaluate_classification_target(
-                Phi_train, Phi_test, y_tr, y_te, tname, seed,
-            )
-
-        jobs = (
-            [delayed(_run_reg)(t, ytr, yte) for t, ytr, yte in reg_tasks]
-            + [delayed(_run_cls)(t, ytr, yte) for t, ytr, yte in cls_tasks]
+    for i, (tname, y_tr, y_te) in enumerate(reg_tasks, 1):
+        r = _evaluate_regression_target(
+            Phi_train, Phi_test, y_tr, y_te, tname, seed,
+            task_idx=i, task_total=n_reg,
         )
-
-        partial_results = Parallel(
-            n_jobs=n_workers,
-            backend="loky",
-            prefer="processes",
-        )(jobs)
-
-        results: Dict[str, float] = {}
-        for r in partial_results:
-            results.update(r)
-        return results
-
-    # ── Sequential fallback ──
-    results: Dict[str, float] = {}
-    for tname, y_tr, y_te in reg_tasks:
-        r = _evaluate_regression_target(Phi_train, Phi_test, y_tr, y_te, tname, seed)
         results.update(r)
-    for tname, y_tr, y_te in cls_tasks:
-        r = _evaluate_classification_target(Phi_train, Phi_test, y_tr, y_te, tname, seed)
+
+    for i, (tname, y_tr, y_te) in enumerate(cls_tasks, 1):
+        r = _evaluate_classification_target(
+            Phi_train, Phi_test, y_tr, y_te, tname, seed,
+            task_idx=i, task_total=n_cls,
+        )
         results.update(r)
+
     return results
