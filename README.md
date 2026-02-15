@@ -495,3 +495,5 @@ python -m coreset_selection r6 -k 300 --source-run R1  # Unconstrained
 ## License
 
 See LICENSE file for details.
+
+<!-- Last verified: 2026-02-15 -->
