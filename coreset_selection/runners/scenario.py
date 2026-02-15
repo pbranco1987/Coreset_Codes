@@ -356,16 +356,21 @@ def run_scenario_standalone(
                 base_cfg,
                 files=replace(base_cfg.files, cache_dir=dim_cache_dir),
             )
-            # Set the correct VAE latent_dim or PCA n_components
+            # Set the correct VAE latent_dim or PCA n_components.
+            # Zero out the unused representation so the cache builder
+            # doesn't waste time training a model that won't be used
+            # (e.g. no VAE training for a PCA-only sweep).
             if space_tag == "vae":
                 dim_base_cfg = replace(
                     dim_base_cfg,
                     vae=replace(dim_base_cfg.vae, latent_dim=int(dim)),
+                    pca=replace(dim_base_cfg.pca, n_components=0),
                 )
             elif space_tag == "pca":
                 dim_base_cfg = replace(
                     dim_base_cfg,
                     pca=replace(dim_base_cfg.pca, n_components=int(dim)),
+                    vae=replace(dim_base_cfg.vae, epochs=0),
                 )
             dim_suffix = f"_d{dim}"
             if verbose:
