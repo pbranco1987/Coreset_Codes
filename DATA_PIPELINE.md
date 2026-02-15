@@ -643,6 +643,8 @@ Coverage is reported per operator (e.g., Claro, Vivo, TIM, Oi) and per technolog
 | `isg_scm_mean`, `qic_scm_mean`, `qf_scm_mean` | Quality indicators for broadband (SCM) | **2024 survey** (Stage R) |
 | `isg_movel_mean`, `qic_movel_mean`, `qf_movel_mean` | Quality indicators for mobile (POS+PRE) | **2024 survey** (Stage R) |
 
+> **Leakage exclusion:** All satisfaction survey columns listed above (`isg_mean`, `qic_mean`, `qf_mean`, and their per-service variants) are **excluded from the feature matrix** by the target leakage prevention system (see Section 6). `qf_mean` is used as the QoS evaluation target (see EVALUATION_METRICS.md Section 6), and the remaining ISG/QIC columns are correlated sub-components of the ISG composite (ISG = weighted combination of QF + QIC + QCR), which would create indirect target leakage if left in X. Survey response counts (`n_respostas_pesquisa`, `n_respostas_scm`, `n_respostas_movel`) are also excluded as confounders. These columns exist in `smp_main.csv` (produced by Stage R) but are removed during cache construction (Step 4).
+
 ### Additional Stage Features
 
 | Feature Group | Sample Columns | Source & Period |
@@ -986,7 +988,7 @@ All binning functions compute percentiles on finite values only. NaN is filled w
 
 ## 6. Target Leakage Prevention
 
-**67 regex patterns** in `coreset_selection/data/target_columns.py` prevent target information from appearing in the feature matrix:
+**26 regex patterns** in `coreset_selection/data/target_columns.py` prevent target information from appearing in the feature matrix:
 
 ### Pattern Categories
 
@@ -1000,6 +1002,9 @@ All binning functions compute percentiles on finite values only. NaN is filled w
 | Infrastructure | `pct_fibra_backhaul`, `pct_escolas_*`, `densidade_*` | ~10 |
 | Urbanization | `pct_agl_alta_velocidade`, `pct_urbano` | ~5 |
 | Classification sources | `pct_cat_low_renda_*`, `n_estacoes_smp`, `rod_pct_cob_*` | ~12 |
+| QoS / Satisfaction survey | `^(isg\|qf\|qic)(_\w+)?_mean$`, `^n_respostas` | 2 |
+
+**QoS leakage note:** `qf_mean` (Qualidade do Funcionamento) is used as the QoS evaluation target. ISG is a weighted composite of QF + QIC + QCR, so all ISG sub-components (`isg_mean`, `qic_mean`, `qf_mean`, and per-service variants like `qf_scm_mean`, `isg_movel_mean`, etc.) must be excluded from the feature matrix to prevent both direct and indirect target leakage. Survey response counts (`n_respostas_*`) are also excluded as confounders.
 
 ### Leakage Prevention Functions
 

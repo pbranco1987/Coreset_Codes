@@ -359,6 +359,8 @@ Unlike KRR and multi-model evaluation (which use Nystrom features as input), QoS
 
 This design answers a different question than KRR: can a small coreset serve as a representative training set for classical regression models operating on the original high-dimensional feature space?
 
+> **Leakage prevention:** `qf_mean` is the QoS evaluation target and is therefore **excluded from X** by the target leakage prevention system (`data/target_columns.py`). All other satisfaction survey columns -- `isg_mean`, `qic_mean`, and their per-service variants (`*_scm_mean`, `*_movel_mean`) -- are also excluded because ISG is a weighted composite of QF + QIC + QCR; leaving any sub-component in X would create indirect target leakage. Survey response counts (`n_respostas_*`) are excluded as confounders. See DATA_PIPELINE.md Section 6 for the full list of leakage prevention patterns.
+
 ### Models
 
 | Model | Method | Hyperparameter Selection |

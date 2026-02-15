@@ -64,6 +64,12 @@ TARGET_COLUMN_PATTERNS: List[re.Pattern] = [
     re.compile(r"^pct_cat_(low|high)_renda_(low|high)_vel$", re.IGNORECASE),
     re.compile(r"^n_estacoes_smp$", re.IGNORECASE),
     re.compile(r"^rod_pct_cob_todas_4g$", re.IGNORECASE),
+    # QoS / Satisfaction survey targets (ISG sub-components from Stage R).
+    # qf_mean is used as the QoS evaluation target; ISG and QIC are
+    # correlated sub-components (ISG = weighted composite of QF + QIC + QCR)
+    # that would create indirect target leakage if left in X.
+    re.compile(r"^(isg|qf|qic)(_\w+)?_mean$", re.IGNORECASE),
+    re.compile(r"^n_respostas", re.IGNORECASE),
 ]
 
 
