@@ -324,7 +324,12 @@ def run_scenario_standalone(
         print(f"SCENARIO: {run_id}")
         print(f"{'='*60}")
         print(f"  Description: {spec.description}")
-        print(f"  k values: {k_values}")
+        if spec.sweep_k is not None:
+            print(f"  k values: {k_values}  (sweep)")
+        elif len(k_values) == 1:
+            print(f"  k value: {k_values[0]}  (fixed)")
+        else:
+            print(f"  k values: {k_values}")
         if spec.sweep_dim:
             print(f"  Dimension sweep: D in {{{', '.join(str(d) for d in spec.sweep_dim)}}}")
         if _explicit_rep_ids is not None:
