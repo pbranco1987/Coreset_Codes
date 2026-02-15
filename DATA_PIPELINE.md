@@ -203,95 +203,216 @@ The feature typing system follows a strict priority order:
 
 ## 5. Target Variables -- Complete Catalog
 
-### 5.1 Primary Regression Targets (2)
-
-| Target | Name | Description | Computation |
-|--------|------|-------------|-------------|
-| `y_4G` / `cov_area_4G` | Area 4G | Mean 4G area coverage (%) | Mean across operators (excluding "op_todas") |
-| `y_5G` / `cov_area_5G` | Area 5G | Mean 5G area coverage (%) | Mean across operators (excluding "op_todas") |
-
-**Source columns:** `cov_pct_area_coberta__tec_{4g,5g}__op_{operator}__2025_09` (September 2025 snapshot)
-
-**Conversion:** If values are in [0, 1.5] range (fractions), they are multiplied by 100 to obtain percentage points.
+There are **37 total targets** organized in four categories: 2 primary coverage, 8 derived coverage, 12 extra regression, and 15 classification targets.
 
 ### How Targets Are Obtained
 
-Targets are constructed in two distinct ways, depending on their nature:
+Targets are constructed in three distinct ways, depending on their nature:
 
-**1. Operator-mean coverage targets (10 targets):** Computed as the **arithmetic mean across operators** at a **specific temporal snapshot**. For each municipality, the per-operator coverage columns (e.g., `cov_pct_area_coberta__tec_4g__op_claro__2025_09`, `...__op_vivo__2025_09`, `...__op_tim__2025_09`) are averaged — excluding the aggregate "op_todas" column to avoid double-counting. The snapshot `2025_09` (September 2025) is used for all 10 coverage targets. These are **cross-operator statistics at a point in time**.
+**1. Operator-mean coverage targets (10 targets: 2 primary + 8 derived).** Computed as the **arithmetic mean across operators** at a **specific temporal snapshot**. For each municipality, the per-operator coverage columns (e.g., `cov_pct_area_coberta__tec_4g__op_claro__2025_09`, `...__op_vivo__2025_09`, `...__op_tim__2025_09`) are averaged row-wise with `skipna=True` -- excluding the aggregate `__op_todas__` column to avoid double-counting. When the maximum absolute value of the result is <= 1.5 (indicating fractional encoding), values are multiplied by 100 to convert to percentage points. The snapshot `2025_09` (September 2025) is used for all 10 coverage targets. These are **cross-operator statistics at a point in time**. If no operator-specific columns are found, the loader searches for pre-computed fallback columns (e.g., `y_cov_area_pct_meanops_4G_sep2025`); if none exist, it defaults to a zero vector.
 
-**2. Extra regression targets (12 targets):** Taken **directly from individual columns** in the CSV — each is a single pre-computed value per municipality. Their temporal reference varies:
-- `HHI SMP_2024`, `HHI SCM_2024`: **Annual 2024 snapshot** (Herfindahl-Hirschman market concentration index)
-- `Densidade_Banda Larga Fixa_2025`, `Densidade_Telefonia Movel_2025`: **Annual 2025 snapshot** (service density per capita)
-- `velocidade_mediana_mean`, `velocidade_mediana_std`: **Cross-sectional statistics** (mean/std of median broadband speed across measurement periods)
-- `pct_limite_mean`: **Cross-sectional statistic** (mean speed cap ratio)
-- `renda_media_mean`, `renda_media_std`: **Cross-sectional statistics** (mean/std of household income)
-- `pct_escolas_internet`, `pct_escolas_fibra`, `pct_fibra_backhaul`: **Cross-sectional** (percentage indicators, no temporal suffix)
+**2. Extra regression targets (12 targets).** Taken **directly from individual columns** in the CSV -- each is a single pre-computed value per municipality, with NaN values replaced by 0.0. No cross-operator averaging or binning is applied. Their temporal reference varies by variable (see Section 5.3).
 
-**3. Classification targets (15 targets):** **Engineered** from the extra regression targets and other feature columns via binning (tercile, quartile, quintile, or extreme-4class boundaries computed on the data) or thresholding (e.g., `HHI >= 0.25`). These are derived statistics, not raw snapshots.
+**3. Classification targets (15 targets).** **Derived** from source columns (either raw CSV columns or the extra regression targets above) via binning or thresholding. The derivation method varies per target: domain thresholds (e.g., HHI >= 0.25), median splits, percentile-based binning (tercile/quartile/quintile), extreme-tail binning (p3/p50/p97), or cross-tabulation of two variables. These are **engineered labels**, not raw snapshots.
 
-### 5.2 Derived Coverage Targets (8, from Table V)
+---
 
-| Target | Name | Computation |
-|--------|------|-------------|
-| `cov_hh_4G` | Households 4G | Mean household 4G coverage across operators |
-| `cov_res_4G` | Residents 4G | Mean resident 4G coverage across operators |
-| `cov_area_4G_5G` | Area 4G+5G | (cov_area_4G + cov_area_5G) / 2 |
-| `cov_area_all` | Area All | Mean of all area-coverage technologies |
-| `cov_hh_4G_5G` | Households 4G+5G | (cov_hh_4G + cov_hh_5G) / 2 (or cov_hh_4G if 5G absent) |
-| `cov_hh_all` | Households All | Mean of all household-coverage technologies |
-| `cov_res_4G_5G` | Residents 4G+5G | (cov_res_4G + cov_res_5G) / 2 (or cov_res_4G if 5G absent) |
-| `cov_res_all` | Residents All | Mean of all resident-coverage technologies |
+### 5.1 Primary Regression Targets (2)
+
+These are the two first-class targets, stored as `y_4G` and `y_5G` in the cache. Computed in `_compute_cov_area_target()` in `brazil_telecom_loader.py`.
+
+#### `y_4G` (a.k.a. `cov_area_4G`)
+
+- **What it measures:** Mean 4G area-coverage percentage across operators for each municipality.
+- **Temporal snapshot:** September 2025 (`2025_09`).
+- **Source columns:** All columns matching `cov_pct_area_coberta__tec_4g__op_{operator}__2025_09`, excluding any column containing `__op_todas__` (the "all operators" aggregate).
+- **Computation:**
+  1. Find all columns with prefix `cov_pct_area_coberta__tec_4g__op_` and suffix `__2025_09`.
+  2. Remove the `__op_todas__` aggregate column if operator-specific columns exist.
+  3. Coerce remaining columns to numeric (non-numeric values become NaN).
+  4. Compute row-wise `mean(axis=1, skipna=True)`, filling any remaining NaN with 0.0.
+  5. If `max(|values|) <= 1.5` (fractional encoding), multiply by 100 to get percentage points.
+- **Fallback order:** If no operator columns found, searches for: `y_cov_area_pct_meanops_4G_sep2025`, then `y_cov_area_pct_meanops_4G`, then `y_4G`. Defaults to zero vector if none found.
+- **Scale:** Percentage points [0, 100].
+- **Cache key:** `y_4G`
+
+#### `y_5G` (a.k.a. `cov_area_5G`)
+
+- **What it measures:** Mean 5G area-coverage percentage across operators for each municipality.
+- **Temporal snapshot:** September 2025 (`2025_09`).
+- **Source columns:** All columns matching `cov_pct_area_coberta__tec_5g__op_{operator}__2025_09`, excluding `__op_todas__`.
+- **Computation:** Identical to `y_4G` but with `tec_5g` instead of `tec_4g`.
+- **Fallback order:** `y_cov_area_pct_meanops_5G_sep2025`, `y_cov_area_pct_meanops_5G`, `y_5G`. Defaults to zeros.
+- **Scale:** Percentage points [0, 100].
+- **Cache key:** `y_5G`
+
+---
+
+### 5.2 Derived Coverage Targets (8)
+
+Computed in `_discover_coverage_targets()` in `brazil_telecom_loader.py`. All use the same `_extract_operator_mean()` helper: find columns matching a prefix/suffix pattern, exclude `__op_todas__`, coerce to numeric, take row-wise mean, convert fractions to percentage points if `max <= 1.5`. After computation, `cov_area_4G` and `cov_area_5G` are removed (they duplicate the primary targets). Stored under cache keys `y_extra_{name}`.
+
+#### `cov_hh_4G` -- Household 4G Coverage
+
+- **Source columns:** `cov_pct_domicilios__tec_4g__op_{operator}__2025_09`, excluding `__op_todas__`.
+- **Computation:** Row-wise mean across operators, fractional-to-percentage conversion.
+- **Fallback:** `y_cov_domicilios_pct_meanops_4G_202509`, `y_cov_domicilios_4G`, or `y_cov_households_4G`.
+- **Snapshot:** `2025_09`.
+
+#### `cov_res_4G` -- Resident/Population 4G Coverage
+
+- **Source columns:** `cov_pct_populacao__tec_4g__op_{operator}__2025_09`, excluding `__op_todas__`.
+- **Computation:** Row-wise mean across operators, fractional-to-percentage conversion.
+- **Fallback:** `y_cov_populacao_pct_meanops_4G_202509`, `y_cov_populacao_4G`, or `y_cov_residents_4G`.
+- **Snapshot:** `2025_09`.
+
+#### `cov_area_4G_5G` -- Combined Area Coverage
+
+- **Formula:** `(y_4G + y_5G) / 2.0`
+- **Source:** Targets 1 and 2 (no additional CSV columns).
+
+#### `cov_area_all` -- Mean Area Coverage Across All Technologies
+
+- **Formula:** `mean([y_4G, y_5G, cov_area_3G, cov_area_2G])` -- only technologies with data present are stacked.
+- **Additional source columns:** `cov_pct_area_coberta__tec_3g__op_{X}__2025_09` and `cov_pct_area_coberta__tec_2g__op_{X}__2025_09` (when present).
+
+#### `cov_hh_4G_5G` -- Combined Household Coverage
+
+- **Formula:** `(cov_hh_4G + cov_hh_5G) / 2.0` if 5G household data exists; otherwise equals `cov_hh_4G` alone.
+
+#### `cov_hh_all` -- Mean Household Coverage Across All Technologies
+
+- **Formula:** `mean([all available household coverage technologies])` stacked column-wise.
+
+#### `cov_res_4G_5G` -- Combined Resident Coverage
+
+- **Formula:** `(cov_res_4G + cov_res_5G) / 2.0` if 5G resident data exists; otherwise equals `cov_res_4G` alone.
+
+#### `cov_res_all` -- Mean Resident Coverage Across All Technologies
+
+- **Formula:** `mean([all available resident coverage technologies])` stacked column-wise.
 
 **Total for KRR evaluation:** 10 targets (2 primary + 8 derived)
 
+---
+
 ### 5.3 Extra Regression Targets (12)
 
-Extracted from the feature matrix for downstream analysis (NOT used during coreset selection):
+Defined in `_EXTRA_REG_COLUMN_MAP` in `derived_targets.py` and extracted by `extract_extra_regression_targets()`. Each target is a **single raw column** read directly from `smp_main.csv` -- no cross-operator averaging or binning. NaN values are replaced with 0.0. Stored under cache keys `y_extreg_{name}`.
 
-| Target | Display Name | Source Column |
-|--------|-------------|---------------|
-| `velocidade_mediana_mean` | Median Speed (mean) | velocidade_mediana_mean |
-| `velocidade_mediana_std` | Median Speed (std) | velocidade_mediana_std |
-| `pct_limite_mean` | Speed Cap Ratio (%) | pct_limite_mean |
-| `renda_media_mean` | Mean Income | renda_media_mean |
-| `renda_media_std` | Income Variability | renda_media_std |
-| `HHI SMP_2024` | HHI Mobile (2024) | HHI SMP_2024 or HHI_SMP_2024 |
-| `HHI SCM_2024` | HHI Fixed (2024) | HHI SCM_2024 or HHI_SCM_2024 |
-| `pct_fibra_backhaul` | Fiber Backhaul (%) | pct_fibra_backhaul |
-| `pct_escolas_internet` | Schools w/ Internet (%) | pct_escolas_internet |
-| `pct_escolas_fibra` | Schools w/ Fiber (%) | pct_escolas_fibra |
-| `Densidade_Banda Larga Fixa_2025` | Broadband Density | Multiple name variants |
-| `Densidade_Telefonia Movel_2025` | Mobile Density | Multiple name variants |
+| Target | Source Column(s) | Temporal Reference | Description |
+|--------|-----------------|-------------------|-------------|
+| `velocidade_mediana_mean` | `velocidade_mediana_mean` | Cross-sectional | Mean of median download speeds |
+| `velocidade_mediana_std` | `velocidade_mediana_std` | Cross-sectional | Std of median download speeds |
+| `pct_limite_mean` | `pct_limite_mean` | Cross-sectional | Mean percentage of connections with data caps |
+| `renda_media_mean` | `renda_media_mean` | Cross-sectional | Mean average household income |
+| `renda_media_std` | `renda_media_std` | Cross-sectional | Std of average household income |
+| `HHI SMP_2024` | `HHI SMP_2024` or `HHI_SMP_2024` | Annual 2024 | Herfindahl-Hirschman Index, mobile (SMP) market |
+| `HHI SCM_2024` | `HHI SCM_2024` or `HHI_SCM_2024` | Annual 2024 | Herfindahl-Hirschman Index, fixed broadband (SCM) market |
+| `pct_fibra_backhaul` | `pct_fibra_backhaul` | Cross-sectional | Percentage of backhaul using fiber optics |
+| `pct_escolas_internet` | `pct_escolas_internet` | Cross-sectional | Percentage of schools with internet |
+| `pct_escolas_fibra` | `pct_escolas_fibra` | Cross-sectional | Percentage of schools with fiber |
+| `Densidade_Banda Larga Fixa_2025` | Multiple name variants (spaces/underscores) | Annual 2025 | Fixed broadband density (subscriptions per 100 inhabitants) |
+| `Densidade_Telefonia Movel_2025` | Multiple name variants (accent on 'o', spaces/underscores) | Annual 2025 | Mobile telephony density (subscriptions per 100 inhabitants) |
+
+---
 
 ### 5.4 Classification Targets (15)
 
+Derived in `derived_targets.py`. Each target is engineered from one or two source columns via thresholding, binning, or cross-tabulation.
+
 #### Strict Tier (10 targets, >= 5% minimum class fraction)
 
-| Target | Type | Derivation |
-|--------|------|-----------|
-| `concentrated_mobile_market` | Binary | HHI SMP >= 0.25 (Anatel concentration threshold) |
-| `high_fiber_backhaul` | Binary | pct_fibra_backhaul >= median |
-| `high_speed_broadband` | Binary | pct_agl_alta_velocidade > median |
-| `has_5g_coverage` | Binary | att09_any_present_5G indicator |
-| `urbanization_level` | 3-class | pct_urbano terciles (p33.33, p66.67) |
-| `broadband_speed_tier` | 3-class | velocidade_mediana terciles |
-| `income_tier` | 3-class | renda_media terciles |
-| `mobile_penetration_tier` | 4-class | Densidade_Telefonia quartiles (p25, p50, p75) |
-| `infra_density_tier` | 5-class | n_estacoes_smp quintiles (p20, p40, p60, p80) |
-| `road_coverage_4g_tier` | 5-class | rod_pct_cob_todas_4g quintiles |
+Built in `_build_strict_candidates()`. All NaN values are filled with 0.0 before thresholding/binning.
+
+**1. `concentrated_mobile_market`** (Binary, 2 classes)
+- **Source column:** `HHI SMP_2024` (or `HHI_SMP_2024`)
+- **Derivation:** Domain threshold (Anatel regulatory definition of concentrated market)
+- **Formula:** `(HHI_SMP_2024 >= 0.25).astype(int64)`
+- **Classes:** 0 = competitive (HHI < 0.25), 1 = concentrated (HHI >= 0.25)
+
+**2. `high_fiber_backhaul`** (Binary, 2 classes)
+- **Source column:** `pct_fibra_backhaul`
+- **Derivation:** Median split on non-zero values
+- **Formula:** Compute `median_val = median(arr[arr > 0])`, then `(arr >= median_val).astype(int64)`
+- **Classes:** 0 = below-median fiber, 1 = above-median fiber
+
+**3. `high_speed_broadband`** (Binary, 2 classes)
+- **Source column:** `pct_agl_alta_velocidade`
+- **Derivation:** Median split on overall values
+- **Formula:** `(arr > median(arr)).astype(int64)` (strict `>`, not `>=`)
+- **Classes:** 0 = below-median high-speed broadband share, 1 = above-median
+
+**4. `has_5g_coverage`** (Binary, 2 classes)
+- **Source column:** `att09_any_present_5G`
+- **Derivation:** Direct use of binary column
+- **Formula:** `nan_to_num(arr, nan=0.0).astype(int64)` (column is already 0/1)
+- **Classes:** 0 = no 5G operator present, 1 = at least one 5G operator
+
+**5. `urbanization_level`** (3 classes)
+- **Source column:** `pct_urbano`
+- **Derivation:** Tercile binning via `_tercile_bin()`
+- **Formula:** Compute p33.33 and p66.67 percentiles on finite values. `<=p33 -> 0`, `p33 < x <= p67 -> 1`, `>p67 -> 2`
+- **Classes:** 0 = low urbanization, 1 = medium, 2 = high
+
+**6. `broadband_speed_tier`** (3 classes)
+- **Source column:** `velocidade_mediana_mean`
+- **Derivation:** Tercile binning via `_tercile_bin()`
+- **Classes:** 0 = low speed, 1 = medium, 2 = high
+
+**7. `income_tier`** (3 classes)
+- **Source column:** `renda_media_mean`
+- **Derivation:** Tercile binning via `_tercile_bin()`
+- **Classes:** 0 = low income, 1 = medium, 2 = high
+
+**8. `mobile_penetration_tier`** (4 classes)
+- **Source column:** `Densidade_Telefonia Movel_2025` (tries multiple spelling variants including accent on 'o')
+- **Derivation:** Quartile binning via `_quartile_bin()`
+- **Formula:** Compute p25, p50, p75 on finite values. `<=p25 -> 0`, `p25 < x <= p50 -> 1`, `p50 < x <= p75 -> 2`, `>p75 -> 3`
+- **Classes:** 0 = very low (Q1), 1 = low (Q2), 2 = medium (Q3), 3 = high (Q4)
+
+**9. `infra_density_tier`** (5 classes)
+- **Source column:** `n_estacoes_smp`
+- **Derivation:** Quintile binning via `_quintile_bin()`
+- **Formula:** Compute p20, p40, p60, p80 on finite values. Five bins assigned 0-4
+- **Classes:** 0 = very low density (Q1) through 4 = very high density (Q5)
+
+**10. `road_coverage_4g_tier`** (5 classes)
+- **Source column:** `rod_pct_cob_todas_4g`
+- **Derivation:** Quintile binning via `_quintile_bin()`
+- **Classes:** 0 = very low road 4G coverage (Q1) through 4 = very high (Q5)
 
 #### Relaxed Tier (5 targets, >= 2% minimum class fraction, with failsafe binning)
 
-| Target | Primary | Failsafe | Description |
-|--------|---------|----------|-------------|
-| `income_speed_class` | 4-class (quadrants) | Binary (high_income_dominant) | Cross-tab of income x speed at medians |
-| `urban_rural_extremes` | 4-class (p3/p50/p97) | 3-class (terciles) | Extreme urbanization classes |
-| `income_extremes` | 4-class (p3/p50/p97) | 3-class (terciles) | Extreme income classes |
-| `speed_extremes` | 4-class (p3/p50/p97) | 3-class (terciles) | Extreme speed classes |
-| `pop_5g_digital_divide` | 4-class (pop x 5G) | Binary (has_5G) | Cross-tab population (median) x 5G |
+Built in `_build_relaxed_candidates()`. Each has a primary derivation and a failsafe alternative. The primary is used if every class contains at least 2% of samples; otherwise the failsafe is substituted automatically.
 
-**Failsafe mechanism:** If the primary binning produces any class with fewer than 2% of samples, the system automatically falls back to the failsafe binning scheme.
+**11. `income_speed_class`** (4-class primary, 2-class failsafe)
+- **Source columns:** `pct_cat_low_renda_low_vel`, `pct_cat_low_renda_high_vel`, `pct_cat_high_renda_low_vel`, `pct_cat_high_renda_high_vel`
+- **Primary derivation:** Stack the 4 columns into an (N,4) matrix, assign each row to whichever quadrant has the highest share via `argmax(axis=1)`
+- **Primary classes:** 0 = dominant low-income/low-speed, 1 = dominant low-income/high-speed, 2 = dominant high-income/low-speed, 3 = dominant high-income/high-speed
+- **Failsafe derivation:** Binary collapse. `low_income = col0 + col1`, `high_income = col2 + col3`. `(high_income > low_income) -> 1, else 0`
+- **Why failsafe may trigger:** The high-income/low-speed quadrant (class 2) is rare (~0.9%), failing the 2% threshold
+
+**12. `urban_rural_extremes`** (4-class primary, 3-class failsafe)
+- **Source column:** `pct_urbano`
+- **Primary derivation:** Extreme 4-class binning via `_extreme_4class_bin()`. Compute p3, p50, p97 percentiles. `<=p3 -> 0 (extreme rural)`, `p3 < x <= p50 -> 1`, `p50 < x < p97 -> 2`, `>=p97 -> 3 (extreme urban)`. Extreme classes each contain approximately 3% of data
+- **Failsafe derivation:** Standard tercile binning via `_tercile_bin()` (3 balanced classes of ~33% each)
+
+**13. `income_extremes`** (4-class primary, 3-class failsafe)
+- **Source column:** `renda_media_mean`
+- **Primary derivation:** Extreme 4-class binning via `_extreme_4class_bin()` using p3/p50/p97
+- **Failsafe derivation:** Standard tercile binning on `renda_media_mean`
+
+**14. `speed_extremes`** (4-class primary, 3-class failsafe)
+- **Source column:** `velocidade_mediana_mean`
+- **Primary derivation:** Extreme 4-class binning via `_extreme_4class_bin()` using p3/p50/p97
+- **Failsafe derivation:** Standard tercile binning on `velocidade_mediana_mean`
+
+**15. `pop_5g_digital_divide`** (4-class primary, 2-class failsafe)
+- **Source columns:** `populacao_2025` (from `city_populations.csv`) and `att09_any_present_5G` (from `smp_main.csv`)
+- **Primary derivation:** Cross-tabulation. `is_large = (pop > median(pop)).astype(int)`, `has_5g = att09_any_present_5G`. Label = `is_large * 2 + has_5g`
+- **Primary classes:** 0 = small pop + no 5G, 1 = small pop + has 5G (~2.5%, naturally rare), 2 = large pop + no 5G, 3 = large pop + has 5G
+- **Failsafe derivation:** Simple binary `has_5g` (0 vs 1)
 
 #### Binning Functions
 
@@ -301,6 +422,20 @@ Extracted from the feature matrix for downstream analysis (NOT used during cores
 | `_quartile_bin()` | 4 | p25, p50, p75 |
 | `_quintile_bin()` | 5 | p20, p40, p60, p80 |
 | `_extreme_4class_bin()` | 4 | p3, p50, p97 (extreme low, low-mid, mid-high, extreme high) |
+
+All binning functions compute percentiles on finite values only. NaN is filled with 0.0 before binning.
+
+#### Cache Storage
+
+| Key pattern | Contents |
+|---|---|
+| `y_4G`, `y_5G` | Primary coverage targets (float64) |
+| `y_extra_{name}` | Derived coverage targets (float64) |
+| `y_extreg_{name}` | Extra regression targets (float64) |
+| `y_cls_{name}` | Classification targets (int64) |
+| `extra_target_names` | Array of derived coverage target names |
+| `extra_reg_target_names` | Array of extra regression target names |
+| `cls_target_names` | Array of classification target names |
 
 **Metadata:** Each classification target produces rich JSON metadata including source columns, derivation method, class labels, class semantics, min_class_fraction check, and `is_engineered` flag. Saved as `.cls_metadata.json` alongside the cache.
 
