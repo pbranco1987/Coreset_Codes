@@ -57,6 +57,12 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         -c|--cores)       TOTAL_CORES="$2"; shift 2 ;;
         --cores=*)        TOTAL_CORES="${1#*=}"; shift ;;
+        --seed)           SEED="$2"; shift 2 ;;
+        --seed=*)         SEED="${1#*=}"; shift ;;
+        --output-dir)     OUTPUT_DIR="$2"; shift 2 ;;
+        --output-dir=*)   OUTPUT_DIR="${1#*=}"; shift ;;
+        --cache-dir)      CACHE_DIR="$2"; shift 2 ;;
+        --cache-dir=*)    CACHE_DIR="${1#*=}"; shift ;;
         --scenarios)      SCENARIO_LIST="$2"; shift 2 ;;
         --scenarios=*)    SCENARIO_LIST="${1#*=}"; shift ;;
         --batch)          MODE="batch"; shift ;;
@@ -72,6 +78,10 @@ Options:
   -c, --cores N        Total cores to use (default: 64).
                        Each scenario gets N / num_scenarios threads.
                        Be considerate of other cluster users.
+
+  --seed N             Random seed (default: 123).
+  --output-dir DIR     Output directory (default: $PROJECT_DIR/runs_out).
+  --cache-dir DIR      Cache directory (default: $PROJECT_DIR/replicate_cache).
 
   --scenarios LIST     Comma-separated scenario IDs (default: all R0–R12).
                        Example: --scenarios R1,R2,R3,R10
@@ -105,7 +115,7 @@ done
 if [ -n "$SCENARIO_LIST" ]; then
     IFS=',' read -ra SCENARIOS <<< "$SCENARIO_LIST"
 else
-    SCENARIOS=(R0 R1 R2 R3 R4 R5 R6 R7 R8 R9 R10 R11 R12)
+    SCENARIOS=(R0 R1 R2 R3 R4 R5 R6 R7 R8 R9 R10 R11 R12 R13 R14)
 fi
 N_SCENARIOS=${#SCENARIOS[@]}
 
@@ -128,6 +138,9 @@ echo "  Scenarios:             $N_SCENARIOS (${SCENARIOS[*]})"
 echo "  Threads per scenario:  $THREADS_PER_SCENARIO"
 echo "  Actual cores used:     $ACTUAL_CORES_USED / $MACHINE_CORES"
 echo "  Mode:                  $MODE"
+echo "  Seed:                  $SEED"
+echo "  Output dir:            $OUTPUT_DIR"
+echo "  Cache dir:             $CACHE_DIR"
 echo "  Resume:                $RESUME"
 echo "================================================================"
 echo ""
@@ -335,7 +348,7 @@ echo ''; echo '=== $RUN_ID FINISHED (exit \$?) ==='; read -p 'Press Enter to clo
 # TMUX MODE — one pane per scenario, live output everywhere
 # =======================================================================
 tmux)
-    SESSION="coreset"
+    SESSION="coreset_seed${SEED}"
     tmux kill-session -t "$SESSION" 2>/dev/null || true
     tmux new-session -d -s "$SESSION" -x 200 -y 50
 
