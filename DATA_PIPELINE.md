@@ -215,6 +215,31 @@ Targets are constructed in three distinct ways, depending on their nature:
 
 **3. Classification targets (15 targets).** **Derived** from source columns (either raw CSV columns or the extra regression targets above) via binning or thresholding. The derivation method varies per target: domain thresholds (e.g., HHI >= 0.25), median splits, percentile-based binning (tercile/quartile/quintile), extreme-tail binning (p3/p50/p97), or cross-tabulation of two variables. These are **engineered labels**, not raw snapshots.
 
+### NaN / Missing Value Treatment
+
+NaN values are handled differently depending on the context (targets vs. features) and the pipeline stage:
+
+#### In target computation
+
+| Context | NaN Treatment | Rationale |
+|---------|--------------|-----------|
+| **Coverage targets** (primary + derived) | `skipna=True` in row-wise mean across operators, then any remaining NaN filled with **0.0** | A municipality with NaN for all operators of a given technology has zero coverage for that technology. `skipna=True` ensures that if some operators report coverage but others have NaN, the mean is computed over available operators only. |
+| **Extra regression targets** (12 raw columns) | NaN replaced with **0.0** via `np.nan_to_num(arr, nan=0.0)` | For each municipality, a missing value in a target column (e.g., `velocidade_mediana_mean`) is interpreted as the absence of the measured quantity (no broadband speed data = 0 speed reported). |
+| **Classification targets** (15 derived) | Source array NaN filled with **0.0** before thresholding/binning. Percentile boundaries computed on **finite values only** (`arr[np.isfinite(arr)]`). | Ensures that NaN municipalities are assigned to the lowest bin (class 0), consistent with the "absence = zero" convention. Computing percentile boundaries on finite values avoids bias from NaN-heavy columns. |
+
+#### In feature preprocessing (Pipeline Steps 5-6)
+
+| Stage | NaN Treatment | Details |
+|-------|--------------|---------|
+| **Step 5: Missingness indicators** | For each numeric column containing any NaN or Inf, a binary indicator column `missingness_indicator_of_{col}` is created (1 = value was missing, 0 = value was present). Inf values are also treated as missing. Categorical columns use a **-1 sentinel code** instead of a separate indicator column. | Preserves missingness information as features so the model can learn from patterns of missing data. |
+| **Step 6: Type-aware imputation** | **Numeric**: column median (computed on I_train). **Ordinal**: rounded median (computed on I_train); fallback to mode. **Categorical**: mode (most frequent value on I_train); fallback to -1. | All imputation statistics are fitted on **I_train only** and applied to the full dataset to prevent data leakage. After this step, the feature matrix contains no NaN or Inf values. |
+
+#### Summary of NaN conventions
+
+- **Targets:** NaN -> 0.0 (zero imputation). The interpretation is that a missing measurement means the quantity is absent or unreported.
+- **Features:** NaN -> missingness indicator (binary column) + median/mode imputation. The interpretation is that the absence of a feature value is informative and should be captured as a separate signal.
+- **No NaN survives preprocessing:** After Step 6, `X_scaled` is guaranteed to contain no NaN or Inf values. After target computation, all target arrays are guaranteed finite.
+
 ---
 
 ### 5.1 Primary Regression Targets (2)
