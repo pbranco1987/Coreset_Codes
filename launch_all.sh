@@ -40,6 +40,7 @@ OUTPUT_DIR="$PROJECT_DIR/runs_out"
 CACHE_DIR="$PROJECT_DIR/replicate_cache"
 LOG_DIR="$PROJECT_DIR/logs"
 SEED=123
+FIXED_K=""
 
 # ---------------------------------------------------------------------------
 # Defaults
@@ -58,6 +59,8 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         -c|--cores)       TOTAL_CORES="$2"; shift 2 ;;
         --cores=*)        TOTAL_CORES="${1#*=}"; shift ;;
+        -k|--k)           FIXED_K="$2"; shift 2 ;;
+        --k=*)            FIXED_K="${1#*=}"; shift ;;
         --seed)           SEED="$2"; shift 2 ;;
         --seed=*)         SEED="${1#*=}"; shift ;;
         --output-dir)     OUTPUT_DIR="$2"; shift 2 ;;
@@ -80,6 +83,10 @@ Options:
   -c, --cores N        Total cores to use (default: 64).
                        Each scenario gets N / num_scenarios threads.
                        Be considerate of other cluster users.
+
+  -k, --k N            Fixed k value for non-sweep scenarios (R2-R7, R10-R12).
+                       Scenarios with built-in k-sweeps (R0, R1, R8, R9) are
+                       not affected. Required unless all scenarios have sweeps.
 
   --seed N             Random seed (default: 123).
   --output-dir DIR     Output directory (default: $PROJECT_DIR/runs_out).
@@ -141,6 +148,7 @@ echo "  Threads per scenario:  $THREADS_PER_SCENARIO"
 echo "  Actual cores used:     $ACTUAL_CORES_USED / $MACHINE_CORES"
 echo "  Mode:                  $MODE"
 echo "  Seed:                  $SEED"
+echo "  Fixed k:               ${FIXED_K:-'(none — sweep scenarios only)'}"
 echo "  Output dir:            $OUTPUT_DIR"
 echo "  Cache dir:             $CACHE_DIR"
 echo "  Resume:                $RESUME"
@@ -150,6 +158,31 @@ echo ""
 # Build resume flag string
 RESUME_FLAG=""
 if [ "$RESUME" = true ]; then RESUME_FLAG="--resume"; fi
+
+# Build k-values flag for non-sweep scenarios.
+# Scenarios with built-in k-sweeps (R0, R1, R8, R9) are NOT affected.
+K_FLAG=""
+if [ -n "$FIXED_K" ]; then K_FLAG="--k-values $FIXED_K"; fi
+
+# Scenarios that have their own sweep_k in RunSpec (must not receive K_FLAG)
+SWEEP_SCENARIOS="R0 R1 R8 R9"
+
+has_own_sweep() {
+    local rid="$1"
+    for s in $SWEEP_SCENARIOS; do
+        if [ "$rid" = "$s" ]; then return 0; fi
+    done
+    return 1
+}
+
+# Build per-scenario k flag: empty for sweep scenarios, K_FLAG otherwise
+k_flag_for() {
+    if has_own_sweep "$1"; then
+        echo ""
+    else
+        echo "$K_FLAG"
+    fi
+}
 
 if [ "$ACTUAL_CORES_USED" -gt "$((MACHINE_CORES * 3 / 4))" ] 2>/dev/null; then
     echo "  WARNING: Using $ACTUAL_CORES_USED of $MACHINE_CORES cores (>75%)."
@@ -234,7 +267,7 @@ individual)
 
     for RUN_ID in "${SCENARIOS[@]}"; do
         echo "# --- $RUN_ID ---"
-        echo "python -m coreset_selection.run_scenario $RUN_ID --data-dir $DATA_DIR --output-dir $OUTPUT_DIR --cache-dir $CACHE_DIR --seed $SEED --parallel-experiments $N_SCENARIOS $RESUME_FLAG"
+        echo "python -m coreset_selection.run_scenario $RUN_ID --data-dir $DATA_DIR --output-dir $OUTPUT_DIR --cache-dir $CACHE_DIR --seed $SEED --parallel-experiments $N_SCENARIOS $RESUME_FLAG $(k_flag_for $RUN_ID)"
         echo ""
     done
 
@@ -247,7 +280,7 @@ individual)
         echo "# ===================== $RUN_ID ====================="
         echo "$ENV_BLOCK"
         echo "cd $PROJECT_DIR"
-        echo "python -m coreset_selection.run_scenario $RUN_ID --data-dir $DATA_DIR --output-dir $OUTPUT_DIR --cache-dir $CACHE_DIR --seed $SEED --parallel-experiments $N_SCENARIOS $RESUME_FLAG"
+        echo "python -m coreset_selection.run_scenario $RUN_ID --data-dir $DATA_DIR --output-dir $OUTPUT_DIR --cache-dir $CACHE_DIR --seed $SEED --parallel-experiments $N_SCENARIOS $RESUME_FLAG $(k_flag_for $RUN_ID)"
         echo ""
     done
 
@@ -283,7 +316,7 @@ batch)
             --cache-dir "$CACHE_DIR" \
             --seed $SEED \
             --parallel-experiments $N_SCENARIOS \
-            --fail-fast $RESUME_FLAG \
+            --fail-fast $RESUME_FLAG $(k_flag_for "$RUN_ID") \
             > "$LOG_FILE" 2>&1 &
 
         PIDS+=($!)
@@ -335,7 +368,7 @@ python -m coreset_selection.run_scenario $RUN_ID \
     --output-dir '$OUTPUT_DIR' \
     --cache-dir '$CACHE_DIR' \
     --seed $SEED \
-    --parallel-experiments $N_SCENARIOS $RESUME_FLAG; \
+    --parallel-experiments $N_SCENARIOS $RESUME_FLAG $(k_flag_for $RUN_ID); \
 echo ''; echo '=== $RUN_ID FINISHED (exit \$?) ==='; read -p 'Press Enter to close.'"
 
         TAB_ARGS+=(--tab --title="$RUN_ID" -- bash -c "$CMD")
@@ -380,7 +413,7 @@ cd '$PROJECT_DIR'"
         tmux send-keys -t "$SESSION" \
             "python -m coreset_selection.run_scenario $RUN_ID \
 --data-dir '$DATA_DIR' --output-dir '$OUTPUT_DIR' --cache-dir '$CACHE_DIR' \
---seed $SEED --parallel-experiments $N_SCENARIOS $RESUME_FLAG" Enter
+--seed $SEED --parallel-experiments $N_SCENARIOS $RESUME_FLAG $(k_flag_for $RUN_ID)" Enter
     done
 
     # Go back to the first window
