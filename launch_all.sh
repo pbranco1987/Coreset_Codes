@@ -368,11 +368,13 @@ cd '$PROJECT_DIR'"
         RUN_ID="${SCENARIOS[$i]}"
 
         if [ "$i" -eq 0 ]; then
+            # Rename the first window
+            tmux rename-window -t "$SESSION" "$RUN_ID"
             tmux send-keys -t "$SESSION" "$ENV_INLINE" Enter
         else
-            tmux split-window -t "$SESSION" -h
+            # Create a new window (tab) for each subsequent scenario
+            tmux new-window -t "$SESSION" -n "$RUN_ID"
             tmux send-keys -t "$SESSION" "$ENV_INLINE" Enter
-            tmux select-layout -t "$SESSION" tiled
         fi
 
         tmux send-keys -t "$SESSION" \
@@ -381,7 +383,8 @@ cd '$PROJECT_DIR'"
 --seed $SEED --parallel-experiments $N_SCENARIOS $RESUME_FLAG" Enter
     done
 
-    tmux select-layout -t "$SESSION" tiled
+    # Go back to the first window
+    tmux select-window -t "$SESSION:0"
     echo "tmux session '$SESSION' created with $N_SCENARIOS panes."
     echo "  Cores used: $ACTUAL_CORES_USED / $MACHINE_CORES"
     echo "  Attach: tmux attach -t $SESSION"
