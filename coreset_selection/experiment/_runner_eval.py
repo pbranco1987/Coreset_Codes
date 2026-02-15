@@ -249,11 +249,19 @@ class EvalMixin:
                 entity_ids = _meta.get("entity_ids")
                 time_ids = _meta.get("time_ids")
 
+                # QoS target: prefer qf_mean (Qualidade do Funcionamento)
+                # from cache metadata; fall back to primary coverage target.
+                _qos_y = _meta.get("qos_target")
+                if _qos_y is None:
+                    _qos_y = (
+                        raw_evaluator.y.ravel()
+                        if raw_evaluator.y.ndim == 1
+                        else raw_evaluator.y[:, 0]
+                    )
+
                 qos_metrics = qos_coreset_evaluation(
                     X_full=raw_evaluator.X_raw,
-                    y_full=raw_evaluator.y.ravel()
-                    if raw_evaluator.y.ndim == 1
-                    else raw_evaluator.y[:, 0],
+                    y_full=_qos_y,
                     S_idx=idx_sel,
                     eval_test_idx=raw_evaluator.eval_test_idx,
                     entity_ids=entity_ids,

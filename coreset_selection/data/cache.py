@@ -33,6 +33,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
+import pandas as pd
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
 
@@ -140,6 +141,14 @@ def build_replicate_cache(
                     n_extra_reg=len(derived_extra_reg),
                     n_cls=len(derived_cls),
                 )
+
+            # QoS target: Qualidade do Funcionamento (qf_mean) from Anatel
+            # ISG satisfaction survey — used by qos_tasks.py evaluation
+            qos_target = None
+            if raw_df is not None and "qf_mean" in raw_df.columns:
+                _qf = pd.to_numeric(raw_df["qf_mean"], errors="coerce")
+                qos_target = np.nan_to_num(_qf.to_numpy(dtype=np.float64), nan=0.0)
+                timer.checkpoint("QoS target extracted (qf_mean)", n_valid=int(np.count_nonzero(qos_target)))
 
             # Optional geo metadata for plotting / diagnostics
             lat, lon = data_manager.latlon()
@@ -503,6 +512,10 @@ def build_replicate_cache(
                 for name, arr in derived_cls.items():
                     save_dict[f"y_cls_{name}"] = np.asarray(arr, dtype=np.int64)
 
+            # Save QoS target (qf_mean — Qualidade do Funcionamento)
+            if qos_target is not None:
+                save_dict["qos_target"] = qos_target
+
             # Optional plotting metadata
             if lat is not None and lon is not None:
                 save_dict["latitude"] = np.asarray(lat)
@@ -823,6 +836,10 @@ def load_replicate_cache(asset_path: str) -> ReplicateAssets:
             if key in data.files:
                 cls_targets[str(name)] = np.asarray(data[key], dtype=np.int64)
     metadata["classification_targets"] = cls_targets
+
+    # Load QoS target (qf_mean — Qualidade do Funcionamento)
+    if "qos_target" in data.files:
+        metadata["qos_target"] = np.asarray(data["qos_target"], dtype=np.float64)
 
     # Geo metadata for plotting
     if "latitude" in data.files:
