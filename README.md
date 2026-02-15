@@ -50,7 +50,7 @@ For full mathematical details, see [METHODOLOGY.md](METHODOLOGY.md).
 | Features (D_non_miss) | 973 | Substantive features (excluding missingness indicators) |
 | Missingness indicators (D_miss) | 890 | Binary indicators for columns with NaN/Inf values |
 | Target snapshots | Coverage: Sep 2025; HHI: 2024; Densidade: 2025 | Per-target temporal reference |
-| Primary targets | 2 | 4G and 5G area coverage (%) |
+| Coverage targets (4G/5G) | 2 | 4G and 5G area coverage (%) |
 | Total coverage targets | 10 | Area, household, and resident coverage |
 | Classification targets | 15 | Market concentration, urbanization, speed tiers, etc. |
 
