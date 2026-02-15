@@ -225,7 +225,7 @@ The framework includes **15 experimental configurations** (R0--R14) organized as
 | R2 | VAE | MMD | Pop-share | -- | 1 | Objective ablation (MMD-only) |
 | R3 | VAE | SD | Pop-share | -- | 1 | Objective ablation (SD-only) |
 | R4 | VAE | MMD, SD | Muni-quota | -- | 1 | Constraint swap |
-| R5 | VAE | MMD, SD | Joint | -- | 5 | Joint constraints |
+| R5 | VAE | MMD, SD | Joint | -- | 1 | Joint constraints |
 | R6 | VAE | MMD, SD | None | -- | 1 | Unconstrained baseline |
 | R7 | VAE | MMD, SD, SKL | Pop-share | -- | 1 | Tri-objective ablation |
 | R8 | Raw | MMD, SD | Pop-share | K_GRID | 1 | Representation: raw space |
