@@ -268,19 +268,23 @@ def run_scenario_standalone(
 
     # R6 special handling: depends on outputs from prior runs
     if run_id == "R6":
+        # Use source_k if explicitly provided, otherwise keep the
+        # k_values already determined above (e.g. from --k-values).
+        if source_k is not None:
+            k_values = [source_k]
         os.environ["CORESET_R6_SOURCE_RUN"] = source_run
         os.environ["CORESET_R6_SOURCE_SPACE"] = source_space
-        os.environ["CORESET_R6_K"] = str(source_k)
-        k_values = [source_k]  # R6 is single-k by definition
+        os.environ["CORESET_R6_K"] = str(k_values[0])
 
         # Validate that dependent runs have completed for the specific k value
+        effective_k = k_values[0]
         missing_deps = []
         for dep_run in spec.depends_on_runs:
-            # Check if output directory exists for the dependency at source_k
-            dep_dir = os.path.join(output_dir, f"{dep_run}_k{source_k}")
+            # Check if output directory exists for the dependency at effective_k
+            dep_dir = os.path.join(output_dir, f"{dep_run}_k{effective_k}")
             dep_dir_alt = os.path.join(output_dir, dep_run)
             if not os.path.exists(dep_dir) and not os.path.exists(dep_dir_alt):
-                missing_deps.append(f"{dep_run} (k={source_k})")
+                missing_deps.append(f"{dep_run} (k={effective_k})")
 
         if missing_deps:
             print(f"\n{'='*60}")
@@ -290,7 +294,7 @@ def run_scenario_standalone(
             print(f"  Looked in: {output_dir}/")
             print(f"\nPlease run the following first:")
             for dep_run in spec.depends_on_runs:
-                print(f"  python -m coreset_selection.run_scenario {dep_run} --data-dir {data_dir} --k-values {source_k}")
+                print(f"  python -m coreset_selection.run_scenario {dep_run} --data-dir {data_dir} --k-values {effective_k}")
             print(f"{'='*60}\n")
             return {
                 "run_id": run_id,
