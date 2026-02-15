@@ -48,6 +48,7 @@ TOTAL_CORES=64         # conservative default — won't hog the cluster
 MODE="individual"      # print per-tab commands
 SKIP_CACHE=false
 RESUME=false
+NO_ATTACH=false
 SCENARIO_LIST=""
 
 # ---------------------------------------------------------------------------
@@ -70,6 +71,7 @@ while [[ $# -gt 0 ]]; do
         --tmux)           MODE="tmux"; shift ;;
         --skip-cache)     SKIP_CACHE=true; shift ;;
         --resume)         RESUME=true; shift ;;
+        --no-attach)      NO_ATTACH=true; shift ;;
         --help|-h)
             cat <<'HELPEOF'
 Usage: bash launch_all.sh [OPTIONS]
@@ -384,7 +386,9 @@ cd '$PROJECT_DIR'"
     echo "  Cores used: $ACTUAL_CORES_USED / $MACHINE_CORES"
     echo "  Attach: tmux attach -t $SESSION"
     echo "  Detach: Ctrl-b d"
-    tmux attach -t "$SESSION"
+    if [ "$NO_ATTACH" = false ]; then
+        tmux attach -t "$SESSION"
+    fi
     ;;
 
 esac
