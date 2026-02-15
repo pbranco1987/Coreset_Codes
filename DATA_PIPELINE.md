@@ -16,7 +16,9 @@ The framework operates on **municipality-level telecom indicators** from Brazil,
 | `metadata.csv` | 346 KB | 5,570 | Geographic metadata: coordinates, state codes, names |
 | `city_populations.csv` | 168 KB | 5,570 | Population counts per municipality |
 
-**Target snapshots:** Targets reference multiple temporal snapshots depending on the variable (coverage targets: March/June/September 2025; HHI: 2024; Densidade: 2025; speed/income/schools: cross-sectional, no temporal suffix).
+**Pre-processing provenance:** `smp_main.csv` is itself the **output** of a multi-stage pre-processing pipeline (`pre_processing_nsga_coreset_input`) that merges **18 heterogeneous data sources** (Stages A–R) into a single municipality-level flat file. Each column in `smp_main.csv` originates from a specific Anatel/regulatory data source with its own temporal reference. See **Section 1.5** for full per-column temporal provenance.
+
+**Target snapshots:** Coverage targets use September 2025 (`2025_09`). HHI targets use 2024 (from IBC, Stage E). Densidade targets use the 2025 snapshot (from Acessos, Stage F). Speed and income targets are static cross-sectional aggregations from sector-level data (Stage G). School connectivity targets reference the September 2025 snapshot (Stage O). Backhaul fiber data uses the 2025 latest-year detail (Stage P). RNI measurement data aggregates over the 2000–2025 measurement period (Stage L). Satisfaction survey indicators (ISG, QIC, QF) come from the 2024 survey wave (Stage R).
 
 **Data loader:** `coreset_selection/data/brazil_telecom_loader.py` (`BrazilTelecomDataLoader` class)
 
@@ -36,6 +38,457 @@ The framework operates on **municipality-level telecom indicators** from Brazil,
 | `longitude` | LONGITUDE, lon, long | Float |
 | `latitude` | LATITUDE, lat | Float |
 | `populacao` | POPULACAO, populacao_2025, pop | Positive integer |
+
+---
+
+## 1.5. Pre-Processing Pipeline: Data Sources & Temporal Provenance
+
+`smp_main.csv` is produced by a **multi-stage pre-processing pipeline** (`pre_processing_nsga_coreset_input`) that ingests 18 heterogeneous data sources from Anatel and related regulatory databases. Each pipeline stage loads a specific source file, aggregates or flattens the data to the municipality level, and merges it into a combined DataFrame keyed on `codigo_ibge`. **Every feature column in the final dataset traces back to one of these stages and has a specific temporal reference.**
+
+### Quick-Reference Summary
+
+| Stage | Source File | Time Period | Temporal Type | Column Suffix |
+|-------|------------|-------------|---------------|---------------|
+| **A** RQUAL | `Tabela_CSV_Indicadores_RQUAL.csv` | Mar 2022 – Jan 2025 (35 months) | Monthly time-series | _(raw rows)_ |
+| **B** Flatten RQUAL | Stage A output | Mar 2022 – Jan 2025 | Flattened monthly | `{feat}_{YYYY}_{MM}` |
+| **C** Merge SMP | `processed_smp_data_enriched_sep2025_plus_timeseries.csv` | Sep 2025 baseline | Mixed | Inherited |
+| **D** NaN Filter | Stage C output | — | Filter only (≥10% NaN dropped) | — |
+| **E** IBC | `IBC_municipios_indicadores_originais.csv` | 2021–2024 (4 yearly) | Yearly | `{feat}_{YYYY}` |
+| **F** Acessos | `Meu_Municipio_Acessos.csv` | Dec 2019–2024, Nov 2025 (7 yearly) | Yearly | `{feat}_{YYYY}` |
+| **G** Setores | `categorias_setores.csv` | Static | Cross-sectional | None |
+| **H** Rodovias | `cobertura_rodovias.zip` | Dec 2025 | Snapshot | None |
+| **I** Estações Licenciadas | `estacoes_licenciadas.zip` (3 CSVs) | Static | Registry snapshot | None |
+| **J** Terrenas & VSATs | `dados_coletas_vsats.csv` + `estacoes_terrenas_individuais.csv` | VSATs: Jun 2023–Dec 2025; Terrenas: static | Aggregated / static | None |
+| **K** GAISPI & Lei Antenas | `gaispi.zip` + `leidasantenas.zip` | GAISPI: 2016–2025; Lei: static | Policy snapshot | None |
+| **L** Mapa RNI | `mapa_rni.zip` → `medicoes_rni.csv` | 2000–2025 (25 years) | Aggregated historical | None |
+| **M** Estações SMP | `ESTACOES_SMP.csv` | Static | Registry snapshot | None |
+| **N** Renda & Velocidade | `renda_velocidade_smp.zip` → `categorias_aglomerados.csv` | Static | Cross-sectional | None |
+| **O** Escolas | `conectividade_escolas.zip` → `Conectividade_Escolas_2025-09.csv` | Sep 2025 | Single snapshot | None |
+| **P** Backhaul | `mapeamento_rede_transporte.zip` (2 CSVs) | Evolution: 2016–2025; Detail: 2025 | Historical + latest-year | None |
+| **Q** Prestadoras | `prestadoras_servicos_telecomunicacoes.csv` | Static | Registry snapshot | None |
+| **R** Pesquisa Satisfação | `pesquisa_de_satisfacao.zip` → `pesquisa_dados_brutos.csv` | 2024 survey wave | Survey snapshot | None |
+
+**Common merge key:** `codigo_ibge` (7-digit IBGE municipality code) across all stages.
+**NaN threshold:** Columns with >10% missing values are dropped at each stage.
+
+---
+
+### Stage A: RQUAL Indicators (Mobile Telephony Quality)
+
+**Source:** `Tabela_CSV_Indicadores_RQUAL.csv`
+**Rows:** Variable (multi-row per municipality × month × indicator × operator) | **Municipalities:** 5,570
+**Time Period:** March 2022 – January 2025 (35 monthly snapshots)
+**Temporal Type:** Monthly time-series
+**Service Filter:** "Telefonia Móvel" (mobile telephony only)
+
+**Processing:**
+1. Filter to mobile telephony service
+2. Values converted from percentage (0–100) to decimal (0–1)
+3. Time series harmonized to a complete monthly grid (2022-03 through 2025-01)
+4. Columns with values >1 normalized via MinMaxScaler
+
+**Features produced:** Multiple RQUAL quality indicators per operator (Prestadora), in long format (one row per municipality × date). Column naming: `{Indicador}_Resultado_{Operador}`.
+
+---
+
+### Stage B: Flatten RQUAL to Municipality Level
+
+**Source:** Stage A output (no new external file)
+**Time Period:** March 2022 – January 2025 (inherited)
+**Temporal Type:** Flattened monthly — each indicator becomes 35 columns
+
+**Column naming convention:** `{Indicador}_Resultado_{Operador}_{YYYY}_{MM}` (zero-padded month)
+
+**Example columns:**
+- `Acessibilidade_Resultado_CLARO_2022_03` (March 2022)
+- `Acessibilidade_Resultado_CLARO_2024_12` (December 2024)
+- `Taxa_de_Queda_Resultado_TIM_2025_01` (January 2025)
+
+**Output:** One row per municipality; (# indicators × # operators × 35 months) feature-time columns.
+
+---
+
+### Stage C: Merge SMP Enriched Data
+
+**Source:** `processed_smp_data_enriched_sep2025_plus_timeseries.csv`
+**Time Period:** September 2025 (enriched baseline with embedded time-series features)
+**Temporal Type:** Mixed — the SMP file contains both point-in-time columns (e.g., `2025_09` coverage snapshots) and time-series features inherited from prior processing.
+
+**Merge:** OUTER join on `codigo_ibge` — combines all SMP features with flattened RQUAL features.
+
+**Key SMP features and their temporal references:**
+- `cov_pct_area_coberta__tec_{4g,5g}__op_{operator}__2025_09` — **Sep 2025**
+- `cov_pct_domicilios__tec_{tech}__op_{operator}__2025_09` — **Sep 2025**
+- `cov_pct_populacao__tec_{tech}__op_{operator}__2025_09` — **Sep 2025**
+- `att09_any_present_5G` — **Sep 2025**
+
+---
+
+### Stage D: NaN Column Filter
+
+**Source:** Stage C output
+**Processing:** Drops any column where >10% of values are NaN. The `codigo_ibge` key is always retained. No new features are created.
+
+---
+
+### Stage E: IBC (Índice Brasil de Conectividade)
+
+**Source:** `IBC_municipios_indicadores_originais.csv`
+**Rows:** 5,570 municipalities × 4 years = ~22,280 | **Municipalities:** 5,570
+**Time Period:** 2021, 2022, 2023, 2024 (4 yearly snapshots)
+**Temporal Type:** Yearly — flattened to one row per municipality with year-stamped columns
+
+**Column naming convention:** `{indicator}_{YYYY}` (integer year)
+
+**Features produced:**
+
+| Indicator | Years | Example Columns | Temporal Reference |
+|-----------|-------|-----------------|-------------------|
+| IBC (connectivity index) | 2021–2024 | `IBC_2021`, `IBC_2022`, `IBC_2023`, `IBC_2024` | Annual, each year |
+| Cobertura Pop. 4G5G | 2021–2024 | `Cobertura Pop. 4G5G_2021`, … | Annual |
+| Densidade SMP | 2021–2024 | `Densidade SMP_2021`, … | Annual |
+| HHI SMP | 2021–2024 | `HHI SMP_2021`, …, `HHI SMP_2024` | Annual |
+| Densidade SCM | 2021–2024 | `Densidade SCM_2021`, … | Annual |
+| HHI SCM | 2021–2024 | `HHI SCM_2021`, …, `HHI SCM_2024` | Annual |
+| Adensamento Estações | 2021–2024 | `Adensamento Estações_2021`, … | Annual |
+| Cobertura área agricultável | 2021–2024 | `Cobertura área agricultável_2021`, … | Annual |
+| ibc_indicador_fibra_* (one-hot) | 2021–2024 | `ibc_indicador_fibra_{category}_{YYYY}` | Annual |
+
+**Total columns:** ~(8 indicators + N fibra dummies) × 4 years
+
+**Processing:** Numeric columns cleaned (comma→dot), agricultural coverage imputed by municipality mean, Fibra one-hot encoded, MinMaxScaler applied, flattened by year.
+**Merge:** OUTER join on `codigo_ibge`.
+
+---
+
+### Stage F: Acessos (Service Access & Density)
+
+**Source:** `Meu_Municipio_Acessos.csv`
+**Rows:** 5,570 municipalities × 4 services × 7 yearly snapshots | **Municipalities:** 5,570
+**Time Period:** December 2019, December 2020, December 2021, December 2022, December 2023, December 2024, November 2025 (7 yearly snapshots)
+**Temporal Type:** Yearly — flattened to one row per municipality with year-stamped columns
+
+**Column naming convention:** `{metric}_{service}_{YYYY}` (integer year)
+
+**Services (Serviço):** 4 distinct service types (e.g., Banda Larga Fixa, Telefonia Fixa, Telefonia Móvel, TV por Assinatura)
+
+**Features produced (per service × per year):**
+
+| Metric | Service Types | Years | Example | Temporal Reference |
+|--------|--------------|-------|---------|-------------------|
+| Acessos (access count) | 4 services | 2019–2025 | `Acessos_Banda Larga Fixa_2019` | Dec of each year (Nov for 2025) |
+| Densidade (density/rate) | 4 services | 2019–2025 | `Densidade_Telefonia Movel_2025` | Dec of each year (Nov for 2025) |
+
+**Total columns:** 4 services × 2 metrics × 7 years = 56 feature-time columns
+
+**Processing:** Pivoted by Serviço, Densidade comma→dot conversion, MinMaxScaler applied, flattened by year.
+**Merge:** OUTER join on `codigo_ibge`.
+
+---
+
+### Stage G: Setores (Census Sector Aggregations)
+
+**Source:** `categorias_setores.csv`
+**Rows:** ~170,000 sector-level rows (~31 sectors per municipality) | **Municipalities:** 5,570
+**Time Period:** Static (cross-sectional snapshot, no time dimension)
+**Temporal Type:** No time dimension — sector-level data aggregated directly to municipality level
+
+**Features produced:**
+
+| Column | Description | Temporal Reference |
+|--------|-------------|--------------------|
+| `velocidade_mediana_mean` | Mean of median download speeds across sectors | Static |
+| `velocidade_mediana_median` | Median of median download speeds | Static |
+| `velocidade_mediana_std` | Std dev of median download speeds | Static |
+| `renda_media_mean` | Mean of average household income across sectors | Static |
+| `renda_media_median` | Median of average household income | Static |
+| `renda_media_std` | Std dev of average household income | Static |
+| `n_setores` | Number of census sectors | Static |
+| `pct_urbano` | Proportion of urban sectors | Static |
+| `pct_rural` | Proportion of rural sectors | Static |
+| `pct_cat_low_renda_low_vel` | Low income, low speed quadrant share | Static |
+| `pct_cat_low_renda_high_vel` | Low income, high speed quadrant share | Static |
+| `pct_cat_high_renda_high_vel` | High income, high speed quadrant share | Static |
+| `pct_cat_high_renda_low_vel` | High income, low speed quadrant share | Static |
+
+**Processing:** Numeric columns cleaned, aggregated to municipality level via groupby, proportion columns kept as [0,1], others scaled.
+**Merge:** LEFT join on `codigo_ibge`.
+
+---
+
+### Stage H: Rodovias (Federal Highway Coverage)
+
+**Source:** `cobertura_rodovias.zip` containing:
+- `Cobertura_Rodovias_Federais_2025_12.csv` — **December 2025** highway coverage data (~460K road segments)
+- `SNV202511A.kml` — **November 2025** highway segment coordinates
+
+**Municipalities:** Matched via spatial proximity (Haversine BallTree) to IBGE municipality centroids
+**Time Period:** December 2025
+**Temporal Type:** Static snapshot
+
+**Operators:** Todas, CLARO, TIM, VIVO
+**Technologies:** Todas, 4G, 5G, 4G5G
+
+**Features produced:**
+
+| Column | Description | Temporal Reference |
+|--------|-------------|--------------------|
+| `rod_pct_cob_{operator}_{technology}` | % of federal highway km covered by operator×technology | Dec 2025 |
+
+**Examples:** `rod_pct_cob_claro_4g`, `rod_pct_cob_vivo_5g`, `rod_pct_cob_todas_4g5g`, etc.
+
+**Processing:** Spatial matching of road segments to municipalities, aggregated by (municipality, operator, technology), pivoted to wide format.
+**Merge:** LEFT join on `codigo_ibge`.
+
+---
+
+### Stage I: Estações Licenciadas (Licensed Telecom Stations)
+
+**Source:** `estacoes_licenciadas.zip` containing 3 files:
+
+| File | Rows | Service | Format |
+|------|------|---------|--------|
+| `Estacoes_Banda_Larga_Fixa.csv` | 45K | Broadband (BLF) | Mosaico (direct IBGE code) |
+| `Estacoes_Telefonia_Fixa.csv` | 301K | Fixed telephony (TF) | Mosaico (direct IBGE code) |
+| `Estacoes_Geral.csv` | 1.3M | General/mixed (Geral) | Legacy (UF + name matching) |
+
+**Municipalities:** 5,570 | **Time Period:** Static (registry snapshot, no date specified)
+**Temporal Type:** No time dimension
+
+**Features produced (per service suffix: `_blf`, `_tf`, `_geral`):**
+
+| Column | Description | Temporal Reference |
+|--------|-------------|--------------------|
+| `n_estacoes_{suf}` | Total station count | Static (registry) |
+| `n_estacoes_ativas_{suf}` | Active station count | Static (registry) |
+| `n_entidades_{suf}` | Distinct operators | Static (registry) |
+| `potencia_mean_{suf}` | Mean transmitter power (W) | Static (registry) |
+| `ganho_antena_mean_{suf}` | Mean antenna gain (dB) | Static (registry) |
+| `altura_antena_mean_{suf}` | Mean antenna height (m) | Static (registry) |
+| `pct_ativas_{suf}` | Proportion of active stations | Static (registry) |
+
+**Total columns:** 7 features × 3 service types = 21 columns.
+**Merge:** LEFT join on `codigo_ibge`.
+
+---
+
+### Stage J: Terrenas & VSATs (Satellite Ground Stations)
+
+**Sources:**
+
+| File | Rows | Municipalities | Time Period |
+|------|------|----------------|-------------|
+| `dados_coletas_vsats.csv` | 584K | 5,542 | Jun 2023 – Dec 2025 (time-series) |
+| `estacoes_terrenas_bloco.csv` | 72 | — | Static (used for CNPJ flags only) |
+| `estacoes_terrenas_individuais.csv` | 421K | 4,295 | Static (registry snapshot) |
+
+**Features produced:**
+
+| Column | Description | Temporal Reference |
+|--------|-------------|--------------------|
+| `n_vsats` | Total VSAT station records | Aggregated Jun 2023 – Dec 2025 |
+| `n_entidades_vsat` | Distinct VSAT operators | Aggregated Jun 2023 – Dec 2025 |
+| `n_satellites_vsat` | Distinct satellites used | Aggregated Jun 2023 – Dec 2025 |
+| `pct_starlink` | Proportion of Starlink stations | Aggregated Jun 2023 – Dec 2025 |
+| `n_coleta_months_vsat` | Distinct collection months | Aggregated Jun 2023 – Dec 2025 |
+| `n_terrenas_indiv` | Total individual ground stations | Static (registry) |
+| `n_entidades_terrena` | Distinct ground station entities | Static (registry) |
+| `pct_licenciadas_terrena` | Proportion of licensed stations | Static (registry) |
+| `pct_vsat_terrena` | Proportion VSAT-type stations | Static (registry) |
+| `n_services_terrena` | Distinct service types | Static (registry) |
+
+**Merge:** OUTER merge of VSAT + individuais aggregations, then LEFT join on `codigo_ibge`.
+
+---
+
+### Stage K: GAISPI & Lei das Antenas
+
+**Sources:**
+
+| File | Rows | Municipalities | Time Period |
+|------|------|----------------|-------------|
+| `gaispi_migracaoTVRO_liberacao.csv` (inside `gaispi.zip`) | 5,570 | 5,570 | Historical 2016–2025 (current state = 2025) |
+| `LeidasAntenas.csv` (inside `leidasantenas.zip`) | 5,570 | 5,570 | Static (legislation status) |
+
+**Features produced:**
+
+| Column | Description | Temporal Reference |
+|--------|-------------|--------------------|
+| `gaispi_fase` | TVRO migration phase (ordinal 1–6, scaled to [0,1]) | 2025 current state |
+| `gaispi_liberado` | 3.5 GHz band liberated (binary) | 2025 status |
+| `gaispi_has_migration_date` | Migration start date exists (binary) | Historical (2016–2025) |
+| `lei_antenas_aprovada` | Municipal antenna law approved (binary) | Static (legislation) |
+
+**Merge:** OUTER merge of GAISPI + Lei, then LEFT join on `codigo_ibge`.
+
+---
+
+### Stage L: Mapa RNI (Non-Ionizing Radiation Measurements)
+
+**Source:** `medicoes_rni.csv` (inside `mapa_rni.zip`)
+**Rows:** 3.2M measurements | **Municipalities:** 5,465
+**Time Period:** 2000–2025 (25 years of cumulative measurements)
+**Temporal Type:** Aggregated across entire measurement history
+
+**Features produced:**
+
+| Column | Description | Temporal Reference |
+|--------|-------------|--------------------|
+| `n_medicoes_rni` | Total RNI measurements | Aggregated 2000–2025 |
+| `n_medicoes_faixa_larga` | Broadband (Faixa Larga) measurement count | Aggregated 2000–2025 |
+| `n_medicoes_fixas` | Fixed (Fixas) measurement count | Aggregated 2000–2025 |
+| `pct_limite_mean` | Mean % of RNI regulatory limit | Aggregated 2000–2025 |
+| `pct_limite_max` | Max % of RNI limit (worst case) | Aggregated 2000–2025 |
+| `valor_medio_mean` | Mean measured radiation value | Aggregated 2000–2025 |
+| `n_anos_rni` | Distinct years with measurements (temporal span) | Aggregated 2000–2025 |
+| `pct_acima_50_limite` | Proportion of measurements >50% of limit | Aggregated 2000–2025 |
+
+**Merge:** LEFT join on `codigo_ibge`.
+
+---
+
+### Stage M: Estações SMP (Mobile Base Stations)
+
+**Source:** `ESTACOES_SMP.csv`
+**Rows:** 1.7M station records | **Municipalities:** 5,569
+**Time Period:** Static (registry snapshot, no date specified)
+**Temporal Type:** No time dimension
+
+**Features produced:**
+
+| Column | Description | Temporal Reference |
+|--------|-------------|--------------------|
+| `n_estacoes_smp` | Total SMP station count | Static (registry) |
+| `n_entidades_smp` | Distinct operators | Static (registry) |
+| `n_estacoes_4g` | Count of 4G (LTE) stations | Static (registry) |
+| `n_estacoes_5g` | Count of 5G (NR) stations | Static (registry) |
+| `n_estacoes_2g` | Count of 2G (GSM/EDGE/CDMA) stations | Static (registry) |
+| `n_estacoes_3g` | Count of 3G (WCDMA) stations | Static (registry) |
+| `pct_4g_smp` | Proportion of 4G stations | Static (registry) |
+| `pct_5g_smp` | Proportion of 5G stations | Static (registry) |
+| `freq_mean_smp` | Mean frequency (MHz) | Static (registry) |
+| `n_tecnologias_smp` | Distinct technology generations | Static (registry) |
+
+**Merge:** LEFT join on `codigo_ibge`.
+
+---
+
+### Stage N: Renda & Velocidade (Urban Agglomerate Speed)
+
+**Source:** `categorias_aglomerados.csv` (inside `renda_velocidade_smp.zip`)
+**Rows:** 13,151 (urban agglomerates only) | **Municipalities:** 734
+**Time Period:** Static (cross-sectional snapshot)
+**Temporal Type:** No time dimension
+
+**Features produced:**
+
+| Column | Description | Temporal Reference |
+|--------|-------------|--------------------|
+| `n_aglomerados` | Number of urban agglomerate areas | Static |
+| `velocidade_mediana_agl_mean` | Mean of median download speed across agglomerates | Static |
+| `pct_agl_alta_velocidade` | Proportion of agglomerates above speed threshold | Static |
+
+**Coverage:** Only 734 municipalities (urban agglomerates); remaining municipalities have NaN.
+**Merge:** LEFT join on `codigo_ibge`.
+
+---
+
+### Stage O: Conectividade Escolas (School Connectivity)
+
+**Source:** `Conectividade_Escolas_2025-09.csv` (inside `conectividade_escolas.zip`)
+**Rows:** 137,847 schools | **Municipalities:** 5,570
+**Time Period:** September 2025 (latest available snapshot)
+**Temporal Type:** Single snapshot
+
+**Features produced:**
+
+| Column | Description | Temporal Reference |
+|--------|-------------|--------------------|
+| `n_escolas` | Total number of schools | Sep 2025 |
+| `pct_escolas_internet` | Proportion of schools with internet | Sep 2025 |
+| `pct_escolas_conect_adequada` | Proportion with adequate connectivity | Sep 2025 |
+| `pct_escolas_fibra` | Mean fiber access indicator | Sep 2025 |
+| `pct_4g_rural_ativada` | Proportion with activated rural 4G | Sep 2025 |
+| `vel_contratada_enec_mean` | Mean contracted speed (ENEC program) | Sep 2025 |
+
+**Merge:** LEFT join on `codigo_ibge`.
+
+---
+
+### Stage P: Backhaul / Rede de Transporte
+
+**Sources (inside `mapeamento_rede_transporte.zip`):**
+
+| File | Rows | Municipalities | Time Period |
+|------|------|----------------|-------------|
+| `backhaul_municipios_evolucao.csv` | 5,570 | 5,570 | 2016–2025 (annual evolution, year columns) |
+| `backhaul_municipios_2023-2025.csv` | 79,555 | 5,526 | 2023–2025 (provider-level, latest year used) |
+
+**Features produced:**
+
+| Column | Description | Temporal Reference |
+|--------|-------------|--------------------|
+| `backhaul_fibra_2025` | Binary: 1 = fiber optics in 2025 | 2025 (from evolution) |
+| `backhaul_ano_fibra` | First year municipality got fiber (0 if never) | Historical 2016–2025 |
+| `n_prestadoras_backhaul` | Distinct backhaul providers | 2025 (latest year from detail) |
+| `n_meios_transporte` | Distinct transport media types | 2025 (latest year from detail) |
+| `pct_fibra_backhaul` | Proportion of provider entries using fiber | 2025 (latest year from detail) |
+
+**Merge:** LEFT join on `codigo_ibge`.
+
+---
+
+### Stage Q: Prestadoras Telecom (Service Provider Registry)
+
+**Source:** `prestadoras_servicos_telecomunicacoes.csv`
+**Rows:** 266,542 registrations | **Municipalities:** 5,173
+**Time Period:** Static (registry snapshot, no date specified)
+**Temporal Type:** No time dimension
+
+**Features produced:**
+
+| Column | Description | Temporal Reference |
+|--------|-------------|--------------------|
+| `n_prestadoras` | Total telecom service registrations | Static (registry) |
+| `n_entidades_prestadoras` | Distinct entities (by CNPJ) | Static (registry) |
+| `n_servicos_prestados` | Distinct service types offered | Static (registry) |
+| `pct_sir` | Proportion Serviço de Interesse Restrito | Static (registry) |
+| `pct_sic` | Proportion Serviço de Interesse Coletivo | Static (registry) |
+| `pct_dispensada` | Proportion dispensed from license | Static (registry) |
+
+**Merge:** LEFT join on `codigo_ibge`.
+
+---
+
+### Stage R: Pesquisa de Satisfação (Consumer Satisfaction Survey)
+
+**Source:** `pesquisa_dados_brutos.csv` (inside `pesquisa_de_satisfacao.zip`)
+**Rows:** 306,404 survey responses | **Municipalities:** 4,949
+**Time Period:** 2024 survey wave
+**Temporal Type:** Single survey wave
+**Services covered:** SCM (broadband), POS/PRE (mobile), STFC (fixed phone), SEAC (pay TV)
+
+**Features produced:**
+
+| Column | Description | Temporal Reference |
+|--------|-------------|--------------------|
+| **Overall (all services):** | | |
+| `isg_mean` | Weighted mean General Satisfaction Index (0–10→[0,1]) | 2024 survey |
+| `qic_mean` | Weighted mean Internet/Connection Quality | 2024 survey |
+| `qf_mean` | Weighted mean Functioning Quality | 2024 survey |
+| `n_respostas_pesquisa` | Total survey responses | 2024 survey |
+| **SCM (broadband only):** | | |
+| `isg_scm_mean` | Weighted ISG for broadband | 2024 survey |
+| `qic_scm_mean` | Weighted QIC for broadband | 2024 survey |
+| `qf_scm_mean` | Weighted QF for broadband | 2024 survey |
+| **Mobile (POS+PRE):** | | |
+| `isg_movel_mean` | Weighted ISG for mobile | 2024 survey |
+| `qic_movel_mean` | Weighted QIC for mobile | 2024 survey |
+| `qf_movel_mean` | Weighted QF for mobile | 2024 survey |
+
+**Note:** `qf_mean` (Qualidade do Funcionamento) is used as the **QoS evaluation target** in the coreset evaluation pipeline (see EVALUATION_METRICS.md Section 6).
+
+**Merge:** LEFT join on `codigo_ibge`.
 
 ---
 
@@ -69,91 +522,141 @@ SP (Sao Paulo), SE (Sergipe), TO (Tocantins)
 
 ## 3. Feature Categories -- Complete Inventory
 
-The 1,863 features (after target exclusion) span the following categories:
+The 1,863 features (after target exclusion) span the following categories. Each table includes the **temporal reference** (source pipeline stage and time period) for every column.
 
 ### Population & Geography
 
-| Feature | Description | Type |
-|---------|-------------|------|
-| `populacao_2025` | Municipal population estimate (2025) | Numeric |
-| `longitude` | Geographic longitude | Numeric |
-| `latitude` | Geographic latitude | Numeric |
+| Feature | Description | Type | Source & Period |
+|---------|-------------|------|-----------------|
+| `populacao_2025` | Municipal population estimate (2025) | Numeric | **2025 estimate** (city_populations.csv) |
+| `longitude` | Geographic longitude | Numeric | **Static** (metadata.csv) |
+| `latitude` | Geographic latitude | Numeric | **Static** (metadata.csv) |
 
 ### Telecom Infrastructure
 
-| Feature Pattern | Description | Count |
-|----------------|-------------|-------|
-| `n_estacoes_smp` | Number of mobile base stations | 1 |
-| `pct_fibra_backhaul` | Percentage of fiber backhaul connections | 1 |
-| `rod_pct_cob_todas_4g` | Road 4G coverage percentage | 1 |
-| `att09_any_present_5G` | 5G presence indicator | 1 |
+| Feature Pattern | Description | Count | Source & Period |
+|----------------|-------------|-------|-----------------|
+| `n_estacoes_smp` | Number of mobile base stations | 1 | **Static registry** (Stage M) |
+| `pct_fibra_backhaul` | Percentage of fiber backhaul connections | 1 | **2025** (Stage P, latest year) |
+| `rod_pct_cob_todas_4g` | Road 4G coverage percentage | 1 | **Dec 2025** (Stage H) |
+| `att09_any_present_5G` | 5G presence indicator | 1 | **Sep 2025** (Stage C, SMP enriched) |
 
 ### Per-Operator Coverage (Area)
 
-| Feature Pattern | Description | Variables |
-|----------------|-------------|-----------|
-| `cov_pct_area_coberta__tec_{4g,5g}__op_{operator}__2025_09` | Area coverage percentage by technology and operator | Multiple per operator |
+| Feature Pattern | Description | Variables | Source & Period |
+|----------------|-------------|-----------|-----------------|
+| `cov_pct_area_coberta__tec_{4g,5g}__op_{operator}__2025_09` | Area coverage percentage by technology and operator | Multiple per operator | **Sep 2025** (Stage C, SMP enriched) |
 
 Coverage is reported per operator (e.g., Claro, Vivo, TIM, Oi) and per technology (4G, 5G). The aggregate "op_todas" (all operators) is excluded from target computation to avoid double-counting.
 
 ### Per-Operator Coverage (Households & Residents)
 
-| Feature Pattern | Description |
-|----------------|-------------|
-| `cov_pct_domicilios__tec_{tech}__op_{operator}__2025_09` | Household coverage by technology and operator |
-| `cov_pct_populacao__tec_{tech}__op_{operator}__2025_09` | Resident (population) coverage by technology and operator |
+| Feature Pattern | Description | Source & Period |
+|----------------|-------------|-----------------|
+| `cov_pct_domicilios__tec_{tech}__op_{operator}__2025_09` | Household coverage by technology and operator | **Sep 2025** (Stage C, SMP enriched) |
+| `cov_pct_populacao__tec_{tech}__op_{operator}__2025_09` | Resident (population) coverage by technology and operator | **Sep 2025** (Stage C, SMP enriched) |
 
 ### Broadband Speed
 
-| Feature | Description |
-|---------|-------------|
-| `velocidade_mediana_mean` | Median broadband speed (mean across measurements) |
-| `velocidade_mediana_std` | Median broadband speed (standard deviation) |
-| `pct_limite_mean` | Speed cap ratio (% of contracted speed achieved) |
+| Feature | Description | Source & Period |
+|---------|-------------|-----------------|
+| `velocidade_mediana_mean` | Median broadband speed (mean across sectors) | **Static** (Stage G, sector-level cross-sectional) |
+| `velocidade_mediana_std` | Median broadband speed (standard deviation) | **Static** (Stage G, sector-level cross-sectional) |
+| `pct_limite_mean` | Mean % of RNI regulatory limit | **Aggregated 2000–2025** (Stage L, RNI measurements) |
 
 ### Socioeconomic
 
-| Feature | Description |
-|---------|-------------|
-| `renda_media_mean` | Mean household income |
-| `renda_media_std` | Income variability |
+| Feature | Description | Source & Period |
+|---------|-------------|-----------------|
+| `renda_media_mean` | Mean household income | **Static** (Stage G, sector-level cross-sectional) |
+| `renda_media_std` | Income variability | **Static** (Stage G, sector-level cross-sectional) |
 
 ### Education Infrastructure
 
-| Feature | Description |
-|---------|-------------|
-| `pct_escolas_internet` | Percentage of schools with internet access |
-| `pct_escolas_fibra` | Percentage of schools with fiber connection |
+| Feature | Description | Source & Period |
+|---------|-------------|-----------------|
+| `pct_escolas_internet` | Percentage of schools with internet access | **Sep 2025** (Stage O) |
+| `pct_escolas_fibra` | Percentage of schools with fiber connection | **Sep 2025** (Stage O) |
 
 ### Service Density
 
-| Feature | Description |
-|---------|-------------|
-| `Densidade_Banda Larga Fixa_2025` | Fixed broadband density (subscriptions per capita) |
-| `Densidade_Telefonia Movel_2025` | Mobile telephony density (subscriptions per capita) |
+| Feature | Description | Source & Period |
+|---------|-------------|-----------------|
+| `Densidade_Banda Larga Fixa_2025` | Fixed broadband density (subscriptions per capita) | **2025 annual** (Stage F, latest Acessos snapshot) |
+| `Densidade_Telefonia Movel_2025` | Mobile telephony density (subscriptions per capita) | **2025 annual** (Stage F, latest Acessos snapshot) |
 
 ### Market Concentration
 
-| Feature | Description |
-|---------|-------------|
-| `HHI SMP_2024` | Herfindahl-Hirschman Index for mobile services (2024) |
-| `HHI SCM_2024` | Herfindahl-Hirschman Index for fixed services (2024) |
+| Feature | Description | Source & Period |
+|---------|-------------|-----------------|
+| `HHI SMP_2024` | Herfindahl-Hirschman Index for mobile services (2024) | **Annual 2024** (Stage E, IBC) |
+| `HHI SCM_2024` | Herfindahl-Hirschman Index for fixed services (2024) | **Annual 2024** (Stage E, IBC) |
 
 ### Urbanization
 
-| Feature | Description |
-|---------|-------------|
-| `pct_urbano` | Percentage of urban population |
-| `pct_agl_alta_velocidade` | Percentage with high-speed broadband access |
+| Feature | Description | Source & Period |
+|---------|-------------|-----------------|
+| `pct_urbano` | Percentage of urban population | **Static** (Stage G, sector-level cross-sectional) |
+| `pct_agl_alta_velocidade` | Percentage with high-speed broadband access | **Static** (Stage N, urban agglomerate cross-sectional) |
 
 ### Income-Speed Quadrant Features
 
-| Feature | Description |
-|---------|-------------|
-| `pct_cat_low_renda_low_vel` | Low income, low speed quadrant |
-| `pct_cat_low_renda_high_vel` | Low income, high speed quadrant |
-| `pct_cat_high_renda_low_vel` | High income, low speed quadrant |
-| `pct_cat_high_renda_high_vel` | High income, high speed quadrant |
+| Feature | Description | Source & Period |
+|---------|-------------|-----------------|
+| `pct_cat_low_renda_low_vel` | Low income, low speed quadrant | **Static** (Stage G, sector-level cross-sectional) |
+| `pct_cat_low_renda_high_vel` | Low income, high speed quadrant | **Static** (Stage G, sector-level cross-sectional) |
+| `pct_cat_high_renda_low_vel` | High income, low speed quadrant | **Static** (Stage G, sector-level cross-sectional) |
+| `pct_cat_high_renda_high_vel` | High income, high speed quadrant | **Static** (Stage G, sector-level cross-sectional) |
+
+### RQUAL Quality Indicators (Time-Series)
+
+| Feature Pattern | Description | Source & Period |
+|----------------|-------------|-----------------|
+| `{Indicador}_Resultado_{Operador}_{YYYY}_{MM}` | Mobile telephony quality indicators per operator per month | **Mar 2022 – Jan 2025, monthly** (Stages A–B) |
+
+35 monthly columns per indicator×operator combination. Examples: `Acessibilidade_Resultado_CLARO_2022_03`, `Taxa_de_Queda_Resultado_TIM_2025_01`.
+
+### IBC Indicators (Time-Series)
+
+| Feature Pattern | Description | Source & Period |
+|----------------|-------------|-----------------|
+| `{indicator}_{YYYY}` | IBC connectivity indicators per year | **2021–2024, yearly** (Stage E) |
+
+4 yearly columns per indicator. Indicators include: IBC, Cobertura Pop. 4G5G, Densidade SMP, HHI SMP, Densidade SCM, HHI SCM, Adensamento Estações, Cobertura área agricultável, ibc_indicador_fibra_* (one-hot).
+
+### Acessos (Time-Series)
+
+| Feature Pattern | Description | Source & Period |
+|----------------|-------------|-----------------|
+| `Acessos_{Serviço}_{YYYY}` | Service access counts per year | **Dec 2019–2024, Nov 2025, yearly** (Stage F) |
+| `Densidade_{Serviço}_{YYYY}` | Service density rates per year | **Dec 2019–2024, Nov 2025, yearly** (Stage F) |
+
+7 yearly columns per service×metric combination. 4 services × 2 metrics × 7 years = 56 feature-time columns.
+
+### Satisfaction Survey
+
+| Feature | Description | Source & Period |
+|---------|-------------|-----------------|
+| `isg_mean` | Weighted General Satisfaction Index (all services) | **2024 survey** (Stage R) |
+| `qic_mean` | Weighted Internet/Connection Quality (all services) | **2024 survey** (Stage R) |
+| `qf_mean` | Weighted Functioning Quality (all services) | **2024 survey** (Stage R) |
+| `isg_scm_mean`, `qic_scm_mean`, `qf_scm_mean` | Quality indicators for broadband (SCM) | **2024 survey** (Stage R) |
+| `isg_movel_mean`, `qic_movel_mean`, `qf_movel_mean` | Quality indicators for mobile (POS+PRE) | **2024 survey** (Stage R) |
+
+### Additional Stage Features
+
+| Feature Group | Sample Columns | Source & Period |
+|--------------|----------------|-----------------|
+| Licensed stations (BLF/TF/Geral) | `n_estacoes_blf`, `pct_ativas_tf`, `potencia_mean_geral` | **Static registry** (Stage I) |
+| VSAT / Ground stations | `n_vsats`, `pct_starlink`, `n_terrenas_indiv` | **VSATs: Jun 2023–Dec 2025 aggregated; Terrenas: static** (Stage J) |
+| GAISPI & Lei Antenas | `gaispi_fase`, `gaispi_liberado`, `lei_antenas_aprovada` | **2025 policy status / static** (Stage K) |
+| RNI measurements | `n_medicoes_rni`, `pct_acima_50_limite`, `n_anos_rni` | **Aggregated 2000–2025** (Stage L) |
+| SMP station breakdown | `n_estacoes_4g`, `pct_5g_smp`, `freq_mean_smp` | **Static registry** (Stage M) |
+| Urban agglomerates | `n_aglomerados`, `velocidade_mediana_agl_mean` | **Static** (Stage N, 734 municipalities only) |
+| School connectivity | `n_escolas`, `pct_escolas_conect_adequada`, `pct_4g_rural_ativada` | **Sep 2025** (Stage O) |
+| Backhaul | `backhaul_fibra_2025`, `backhaul_ano_fibra`, `n_prestadoras_backhaul` | **Evolution: 2016–2025; Detail: 2025** (Stage P) |
+| Prestadoras | `n_prestadoras`, `n_servicos_prestados`, `pct_sir` | **Static registry** (Stage Q) |
+| Highway coverage | `rod_pct_cob_claro_4g`, `rod_pct_cob_vivo_5g`, etc. | **Dec 2025** (Stage H) |
 
 ---
 
@@ -325,26 +828,26 @@ Computed in `_discover_coverage_targets()` in `brazil_telecom_loader.py`. All us
 
 Defined in `_EXTRA_REG_COLUMN_MAP` in `derived_targets.py` and extracted by `extract_extra_regression_targets()`. Each target is a **single raw column** read directly from `smp_main.csv` -- no cross-operator averaging or binning. NaN values are replaced with 0.0. Stored under cache keys `y_extreg_{name}`.
 
-| Target | Source Column(s) | Temporal Reference | Description |
-|--------|-----------------|-------------------|-------------|
-| `velocidade_mediana_mean` | `velocidade_mediana_mean` | Cross-sectional | Mean of median download speeds |
-| `velocidade_mediana_std` | `velocidade_mediana_std` | Cross-sectional | Std of median download speeds |
-| `pct_limite_mean` | `pct_limite_mean` | Cross-sectional | Mean percentage of connections with data caps |
-| `renda_media_mean` | `renda_media_mean` | Cross-sectional | Mean average household income |
-| `renda_media_std` | `renda_media_std` | Cross-sectional | Std of average household income |
-| `HHI SMP_2024` | `HHI SMP_2024` or `HHI_SMP_2024` | Annual 2024 | Herfindahl-Hirschman Index, mobile (SMP) market |
-| `HHI SCM_2024` | `HHI SCM_2024` or `HHI_SCM_2024` | Annual 2024 | Herfindahl-Hirschman Index, fixed broadband (SCM) market |
-| `pct_fibra_backhaul` | `pct_fibra_backhaul` | Cross-sectional | Percentage of backhaul using fiber optics |
-| `pct_escolas_internet` | `pct_escolas_internet` | Cross-sectional | Percentage of schools with internet |
-| `pct_escolas_fibra` | `pct_escolas_fibra` | Cross-sectional | Percentage of schools with fiber |
-| `Densidade_Banda Larga Fixa_2025` | Multiple name variants (spaces/underscores) | Annual 2025 | Fixed broadband density (subscriptions per 100 inhabitants) |
-| `Densidade_Telefonia Movel_2025` | Multiple name variants (accent on 'o', spaces/underscores) | Annual 2025 | Mobile telephony density (subscriptions per 100 inhabitants) |
+| Target | Source Column(s) | Temporal Reference | Pipeline Stage | Description |
+|--------|-----------------|-------------------|----------------|-------------|
+| `velocidade_mediana_mean` | `velocidade_mediana_mean` | **Static** (sector-level cross-sectional) | Stage G (Setores) | Mean of median download speeds across census sectors |
+| `velocidade_mediana_std` | `velocidade_mediana_std` | **Static** (sector-level cross-sectional) | Stage G (Setores) | Std of median download speeds across census sectors |
+| `pct_limite_mean` | `pct_limite_mean` | **Aggregated 2000–2025** (RNI measurements) | Stage L (Mapa RNI) | Mean % of RNI regulatory limit across all measurements |
+| `renda_media_mean` | `renda_media_mean` | **Static** (sector-level cross-sectional) | Stage G (Setores) | Mean of average household income across census sectors |
+| `renda_media_std` | `renda_media_std` | **Static** (sector-level cross-sectional) | Stage G (Setores) | Std of average household income across census sectors |
+| `HHI SMP_2024` | `HHI SMP_2024` or `HHI_SMP_2024` | **Annual 2024** | Stage E (IBC) | Herfindahl-Hirschman Index, mobile (SMP) market |
+| `HHI SCM_2024` | `HHI SCM_2024` or `HHI_SCM_2024` | **Annual 2024** | Stage E (IBC) | Herfindahl-Hirschman Index, fixed broadband (SCM) market |
+| `pct_fibra_backhaul` | `pct_fibra_backhaul` | **2025** (latest year from provider-level data) | Stage P (Backhaul) | Percentage of backhaul using fiber optics |
+| `pct_escolas_internet` | `pct_escolas_internet` | **Sep 2025** (school connectivity snapshot) | Stage O (Escolas) | Percentage of schools with internet |
+| `pct_escolas_fibra` | `pct_escolas_fibra` | **Sep 2025** (school connectivity snapshot) | Stage O (Escolas) | Percentage of schools with fiber |
+| `Densidade_Banda Larga Fixa_2025` | Multiple name variants (spaces/underscores) | **2025 annual** (latest Acessos snapshot) | Stage F (Acessos) | Fixed broadband density (subscriptions per 100 inhabitants) |
+| `Densidade_Telefonia Movel_2025` | Multiple name variants (accent on 'o', spaces/underscores) | **2025 annual** (latest Acessos snapshot) | Stage F (Acessos) | Mobile telephony density (subscriptions per 100 inhabitants) |
 
 ---
 
 ### 5.4 Classification Targets (15)
 
-Derived in `derived_targets.py`. Each target is engineered from one or two source columns via thresholding, binning, or cross-tabulation.
+Derived in `derived_targets.py`. Each target is engineered from one or two source columns via thresholding, binning, or cross-tabulation. The **temporal provenance** of each classification target is inherited from its source column(s) — see the "Source Temporal Reference" annotation below each target.
 
 #### Strict Tier (10 targets, >= 5% minimum class fraction)
 
@@ -352,58 +855,68 @@ Built in `_build_strict_candidates()`. All NaN values are filled with 0.0 before
 
 **1. `concentrated_mobile_market`** (Binary, 2 classes)
 - **Source column:** `HHI SMP_2024` (or `HHI_SMP_2024`)
+- **Source temporal reference:** Annual 2024 (Stage E, IBC)
 - **Derivation:** Domain threshold (Anatel regulatory definition of concentrated market)
 - **Formula:** `(HHI_SMP_2024 >= 0.25).astype(int64)`
 - **Classes:** 0 = competitive (HHI < 0.25), 1 = concentrated (HHI >= 0.25)
 
 **2. `high_fiber_backhaul`** (Binary, 2 classes)
 - **Source column:** `pct_fibra_backhaul`
+- **Source temporal reference:** 2025 (Stage P, Backhaul latest year)
 - **Derivation:** Median split on non-zero values
 - **Formula:** Compute `median_val = median(arr[arr > 0])`, then `(arr >= median_val).astype(int64)`
 - **Classes:** 0 = below-median fiber, 1 = above-median fiber
 
 **3. `high_speed_broadband`** (Binary, 2 classes)
 - **Source column:** `pct_agl_alta_velocidade`
+- **Source temporal reference:** Static (Stage N, urban agglomerate cross-sectional)
 - **Derivation:** Median split on overall values
 - **Formula:** `(arr > median(arr)).astype(int64)` (strict `>`, not `>=`)
 - **Classes:** 0 = below-median high-speed broadband share, 1 = above-median
 
 **4. `has_5g_coverage`** (Binary, 2 classes)
 - **Source column:** `att09_any_present_5G`
+- **Source temporal reference:** Sep 2025 (Stage C, SMP enriched)
 - **Derivation:** Direct use of binary column
 - **Formula:** `nan_to_num(arr, nan=0.0).astype(int64)` (column is already 0/1)
 - **Classes:** 0 = no 5G operator present, 1 = at least one 5G operator
 
 **5. `urbanization_level`** (3 classes)
 - **Source column:** `pct_urbano`
+- **Source temporal reference:** Static (Stage G, sector-level cross-sectional)
 - **Derivation:** Tercile binning via `_tercile_bin()`
 - **Formula:** Compute p33.33 and p66.67 percentiles on finite values. `<=p33 -> 0`, `p33 < x <= p67 -> 1`, `>p67 -> 2`
 - **Classes:** 0 = low urbanization, 1 = medium, 2 = high
 
 **6. `broadband_speed_tier`** (3 classes)
 - **Source column:** `velocidade_mediana_mean`
+- **Source temporal reference:** Static (Stage G, sector-level cross-sectional)
 - **Derivation:** Tercile binning via `_tercile_bin()`
 - **Classes:** 0 = low speed, 1 = medium, 2 = high
 
 **7. `income_tier`** (3 classes)
 - **Source column:** `renda_media_mean`
+- **Source temporal reference:** Static (Stage G, sector-level cross-sectional)
 - **Derivation:** Tercile binning via `_tercile_bin()`
 - **Classes:** 0 = low income, 1 = medium, 2 = high
 
 **8. `mobile_penetration_tier`** (4 classes)
 - **Source column:** `Densidade_Telefonia Movel_2025` (tries multiple spelling variants including accent on 'o')
+- **Source temporal reference:** 2025 annual (Stage F, Acessos latest snapshot)
 - **Derivation:** Quartile binning via `_quartile_bin()`
 - **Formula:** Compute p25, p50, p75 on finite values. `<=p25 -> 0`, `p25 < x <= p50 -> 1`, `p50 < x <= p75 -> 2`, `>p75 -> 3`
 - **Classes:** 0 = very low (Q1), 1 = low (Q2), 2 = medium (Q3), 3 = high (Q4)
 
 **9. `infra_density_tier`** (5 classes)
 - **Source column:** `n_estacoes_smp`
+- **Source temporal reference:** Static registry (Stage M, SMP stations)
 - **Derivation:** Quintile binning via `_quintile_bin()`
 - **Formula:** Compute p20, p40, p60, p80 on finite values. Five bins assigned 0-4
 - **Classes:** 0 = very low density (Q1) through 4 = very high density (Q5)
 
 **10. `road_coverage_4g_tier`** (5 classes)
 - **Source column:** `rod_pct_cob_todas_4g`
+- **Source temporal reference:** Dec 2025 (Stage H, highway coverage)
 - **Derivation:** Quintile binning via `_quintile_bin()`
 - **Classes:** 0 = very low road 4G coverage (Q1) through 4 = very high (Q5)
 
@@ -413,6 +926,7 @@ Built in `_build_relaxed_candidates()`. Each has a primary derivation and a fail
 
 **11. `income_speed_class`** (4-class primary, 2-class failsafe)
 - **Source columns:** `pct_cat_low_renda_low_vel`, `pct_cat_low_renda_high_vel`, `pct_cat_high_renda_low_vel`, `pct_cat_high_renda_high_vel`
+- **Source temporal reference:** Static (Stage G, sector-level cross-sectional)
 - **Primary derivation:** Stack the 4 columns into an (N,4) matrix, assign each row to whichever quadrant has the highest share via `argmax(axis=1)`
 - **Primary classes:** 0 = dominant low-income/low-speed, 1 = dominant low-income/high-speed, 2 = dominant high-income/low-speed, 3 = dominant high-income/high-speed
 - **Failsafe derivation:** Binary collapse. `low_income = col0 + col1`, `high_income = col2 + col3`. `(high_income > low_income) -> 1, else 0`
@@ -420,21 +934,25 @@ Built in `_build_relaxed_candidates()`. Each has a primary derivation and a fail
 
 **12. `urban_rural_extremes`** (4-class primary, 3-class failsafe)
 - **Source column:** `pct_urbano`
+- **Source temporal reference:** Static (Stage G, sector-level cross-sectional)
 - **Primary derivation:** Extreme 4-class binning via `_extreme_4class_bin()`. Compute p3, p50, p97 percentiles. `<=p3 -> 0 (extreme rural)`, `p3 < x <= p50 -> 1`, `p50 < x < p97 -> 2`, `>=p97 -> 3 (extreme urban)`. Extreme classes each contain approximately 3% of data
 - **Failsafe derivation:** Standard tercile binning via `_tercile_bin()` (3 balanced classes of ~33% each)
 
 **13. `income_extremes`** (4-class primary, 3-class failsafe)
 - **Source column:** `renda_media_mean`
+- **Source temporal reference:** Static (Stage G, sector-level cross-sectional)
 - **Primary derivation:** Extreme 4-class binning via `_extreme_4class_bin()` using p3/p50/p97
 - **Failsafe derivation:** Standard tercile binning on `renda_media_mean`
 
 **14. `speed_extremes`** (4-class primary, 3-class failsafe)
 - **Source column:** `velocidade_mediana_mean`
+- **Source temporal reference:** Static (Stage G, sector-level cross-sectional)
 - **Primary derivation:** Extreme 4-class binning via `_extreme_4class_bin()` using p3/p50/p97
 - **Failsafe derivation:** Standard tercile binning on `velocidade_mediana_mean`
 
 **15. `pop_5g_digital_divide`** (4-class primary, 2-class failsafe)
 - **Source columns:** `populacao_2025` (from `city_populations.csv`) and `att09_any_present_5G` (from `smp_main.csv`)
+- **Source temporal reference:** `populacao_2025` = 2025 estimate; `att09_any_present_5G` = Sep 2025 (Stage C, SMP enriched)
 - **Primary derivation:** Cross-tabulation. `is_large = (pop > median(pop)).astype(int)`, `has_5g = att09_any_present_5G`. Label = `is_large * 2 + has_5g`
 - **Primary classes:** 0 = small pop + no 5G, 1 = small pop + has 5G (~2.5%, naturally rare), 2 = large pop + no 5G, 3 = large pop + has 5G
 - **Failsafe derivation:** Simple binary `has_5g` (0 vs 1)
