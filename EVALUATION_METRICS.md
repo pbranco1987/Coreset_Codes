@@ -8,7 +8,7 @@ This document provides exhaustive documentation of all evaluation metrics, inclu
 
 ### Core Principle
 
-All evaluation metrics are computed in the **standardized raw attribute space** (D = 621 dimensions) on a fixed evaluation set **E** (|E| = 2,000), regardless of which representation space (VAE, PCA, or raw) was used during optimization.
+All evaluation metrics are computed in the **standardized raw attribute space** (D = 1,863 dimensions) on a fixed evaluation set **E** (|E| = 2,000), regardless of which representation space (VAE, PCA, or raw) was used during optimization.
 
 This design ensures:
 1. **Fair comparison** across representation ablations (R1 vs R8 vs R9)
@@ -18,7 +18,7 @@ This design ensures:
 ### Evaluation Set Construction
 
 The evaluation set E is constructed via stratified sampling:
-- |E| = 2,000 municipalities (from N = 5,569)
+- |E| = 2,000 municipalities (from N = 5,570)
 - Stratified by state to ensure geographic representativeness
 - Fixed per replicate (same E for all runs sharing a rep_id)
 - Split internally: E_train (1,600) and E_test (400), also stratified by state

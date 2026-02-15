@@ -2,7 +2,7 @@
 
 ## Abstract
 
-This repository implements a **constrained multi-objective coreset selection framework** for scalable telecom analytics on Brazilian municipality-level data. The framework selects a small, representative subset (coreset) of **k** municipalities from a national dataset of **N = 5,569** municipalities across **G = 27** states, such that downstream kernel-based analytics (Nystrom approximation, kernel PCA, kernel ridge regression) remain faithful to the full dataset while satisfying geographic proportionality constraints.
+This repository implements a **constrained multi-objective coreset selection framework** for scalable telecom analytics on Brazilian municipality-level data. The framework selects a small, representative subset (coreset) of **k** municipalities from a national dataset of **N = 5,570** municipalities across **G = 27** states, such that downstream kernel-based analytics (Nystrom approximation, kernel PCA, kernel ridge regression) remain faithful to the full dataset while satisfying geographic proportionality constraints.
 
 The approach combines **representation learning** (Variational Autoencoder / PCA) with **multi-objective evolutionary optimization** (constrained NSGA-II) to simultaneously minimize distributional divergences (MMD and Sinkhorn divergence) subject to geographic equity constraints. The framework is evaluated across **15 experimental configurations** (R0--R14), **7 baseline methods**, **10 coverage prediction targets**, and **9 coreset cardinalities**, producing a total of **20 manuscript figures** and **13 manuscript tables**.
 
@@ -18,7 +18,7 @@ However, naive coreset selection introduces **geographic composition drift**: sm
 
 ## Problem Formulation
 
-Given a dataset **X** of N = 5,569 municipalities with D = 621 features, partitioned into G = 27 geographic groups (states), the goal is to select a subset S of cardinality k such that:
+Given a dataset **X** of N = 5,570 municipalities with D = 1,863 features, partitioned into G = 27 geographic groups (states), the goal is to select a subset S of cardinality k such that:
 
 ```
 Minimize:   F(S) = [f_MMD(S), f_Sinkhorn(S)]
@@ -44,10 +44,12 @@ For full mathematical details, see [METHODOLOGY.md](METHODOLOGY.md).
 
 | Property | Value | Source |
 |----------|-------|--------|
-| Municipalities (N) | 5,569 | All Brazilian municipalities |
+| Municipalities (N) | 5,570 | All Brazilian municipalities |
 | States (G) | 27 | 26 states + Federal District |
-| Features (D) | 621 | Numeric covariates after preprocessing |
-| Snapshot date | September 2025 | Anatel regulatory data |
+| Features (D_total) | 1,863 | Total features after target exclusion |
+| Features (D_non_miss) | 973 | Substantive features (excluding missingness indicators) |
+| Missingness indicators (D_miss) | 890 | Binary indicators for columns with NaN/Inf values |
+| Target snapshots | Coverage: Sep 2025; HHI: 2024; Densidade: 2025 | Per-target temporal reference |
 | Primary targets | 2 | 4G and 5G area coverage (%) |
 | Total coverage targets | 10 | Area, household, and resident coverage |
 | Classification targets | 15 | Market concentration, urbanization, speed tiers, etc. |
@@ -56,7 +58,7 @@ For full mathematical details, see [METHODOLOGY.md](METHODOLOGY.md).
 
 | File | Size | Content |
 |------|------|---------|
-| `smp_main.csv` | 91 MB | Municipality-level telecom indicators (621 features) |
+| `smp_main.csv` | 90 MB | 1,919 columns: 1,011 substantive features + 905 missingness indicators + 3 identifiers (before target exclusion) |
 | `metadata.csv` | 346 KB | Geographic coordinates (lat/lon), state codes, names |
 | `city_populations.csv` | 168 KB | Population counts per municipality |
 
@@ -234,7 +236,7 @@ The framework includes **15 experimental configurations** (R0--R14) organized as
 | R13 | VAE | MMD, SD | Pop-share | -- | 1 | VAE dim sweep (6 dims) |
 | R14 | PCA | MMD, SD | Pop-share | -- | 1 | PCA dim sweep (6 dims) |
 
-**K_GRID** = {50, 100, 200, 300, 400, 500}. **D_GRID** = {4, 8, 16, 32, 64, 128}.
+**K_GRID** = {20, 30, 40, 50, 100, 200, 300, 400, 500}. **D_GRID** = {4, 8, 16, 32, 64, 128}.
 
 For exhaustive per-run documentation, see [EXPERIMENTS.md](EXPERIMENTS.md).
 
@@ -419,10 +421,10 @@ pip install numpy scipy pandas scikit-learn torch matplotlib seaborn
 python -m coreset_selection prep --n-replicates 5 --data-dir data
 
 # 3. Run primary experiment (R1) at all k values
-python -m coreset_selection scenario --run-id R1 --k-values 50,100,200,300,400,500
+python -m coreset_selection scenario --run-id R1 --k-values 20,30,40,50,100,200,300,400,500
 
 # 4. Run all experiments (R0-R14)
-python -m coreset_selection all -k 50,100,200,300,400,500
+python -m coreset_selection all -k 20,30,40,50,100,200,300,400,500
 
 # 5. Run experiments in parallel
 python -m coreset_selection parallel r1 r2 r3 r4 r5 r6 r7 r8 r9 r10

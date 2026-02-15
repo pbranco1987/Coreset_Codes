@@ -50,7 +50,7 @@ This separation ensures that:
 | R13 | VAE | MMD, SD | pop_share | single k | D_GRID | 1 | No | Yes | VAE dim sweep |
 | R14 | PCA | MMD, SD | pop_share | single k | D_GRID | 1 | No | Yes | PCA dim sweep |
 
-**K_GRID** = {50, 100, 200, 300, 400, 500}
+**K_GRID** = {20, 30, 40, 50, 100, 200, 300, 400, 500}
 **D_GRID** = {4, 8, 16, 32, 64, 128}
 
 ---
@@ -65,7 +65,7 @@ This separation ensures that:
 - Space: Raw (no optimization in embedding space)
 - Objectives: None (pure quota computation)
 - Constraint mode: municipality_share_quota (w_i = 1)
-- k-sweep: K_GRID = {50, 100, 200, 300, 400, 500}
+- k-sweep: K_GRID = {20, 30, 40, 50, 100, 200, 300, 400, 500}
 - Replicates: 1
 
 **Outputs:**
@@ -85,9 +85,9 @@ This separation ensures that:
 - Space: VAE (latent_dim = 32)
 - Objectives: (MMD, Sinkhorn divergence) -- bi-objective
 - Constraint mode: population_share (w_i = population_i)
-- k-sweep: K_GRID = {50, 100, 200, 300, 400, 500}
+- k-sweep: K_GRID = {20, 30, 40, 50, 100, 200, 300, 400, 500}
 - Replicates: 5 (n_reps = 5 for statistical robustness)
-- **Total instances: 6 k-values x 5 replicates = 30 experiment runs**
+- **Total instances: 9 k-values x 5 replicates = 45 experiment runs**
 
 **What is measured:**
 - Nystrom error, kPCA distortion, KRR RMSE across all 10 coverage targets
@@ -200,7 +200,7 @@ This separation ensures that:
 
 ### R8: Representation Transfer (Raw Space)
 
-**Purpose:** Ablate the value of representation learning. Optimizes directly in the D = 621 standardized raw feature space without any dimensionality reduction.
+**Purpose:** Ablate the value of representation learning. Optimizes directly in the D = 1,863 standardized raw feature space without any dimensionality reduction.
 
 **Configuration:**
 - Space: Raw (standardized features, no VAE/PCA)
@@ -228,7 +228,7 @@ This separation ensures that:
 - Replicates: 1
 - Requires PCA fitting (requires_pca = True)
 
-**Comparison:** R1 (VAE-32) vs R8 (raw-621) vs R9 (PCA-32). Isolates the effect of nonlinear vs linear dimensionality reduction.
+**Comparison:** R1 (VAE-32) vs R8 (raw-1863) vs R9 (PCA-32). Isolates the effect of nonlinear vs linear dimensionality reduction.
 
 ---
 
@@ -329,7 +329,7 @@ This separation ensures that:
 3. Run NSGA-II optimization in d-dimensional space
 4. Evaluate in raw standardized space (same as always)
 
-**Note:** Representation training is re-done for each dimension. Only the NSGA-II optimization uses the new embeddings; evaluation is always in the original 621-dimensional standardized space.
+**Note:** Representation training is re-done for each dimension. Only the NSGA-II optimization uses the new embeddings; evaluation is always in the original 1,863-dimensional standardized space.
 
 ---
 
@@ -375,7 +375,7 @@ This separation ensures that:
 
 | Comparison | Tests |
 |-----------|-------|
-| R1 vs R8 | VAE (32-d) vs raw (621-d) features |
+| R1 vs R8 | VAE (32-d) vs raw (1863-d) features |
 | R1 vs R9 | VAE (32-d) vs PCA (32-d) -- nonlinear vs linear |
 | R13 | VAE sensitivity to latent dimension |
 | R14 | PCA sensitivity to component count |
@@ -478,18 +478,21 @@ R12 tests 7 effort levels spanning a 400x range. Expected: quality improves stee
 
 ## 6. Cardinality Grid Analysis
 
-The cardinality grid K_GRID = {50, 100, 200, 300, 400, 500} spans approximately 1% to 9% of the full dataset:
+The cardinality grid K_GRID = {20, 30, 40, 50, 100, 200, 300, 400, 500} spans approximately 0.4% to 9% of the full dataset:
 
 | k | k/N (%) | Ratio to smallest | Interpretation |
 |---|---------|-------------------|----------------|
-| 50 | 0.90% | 1x | Extreme compression |
-| 100 | 1.80% | 2x | High compression |
-| 200 | 3.59% | 4x | Moderate compression |
-| 300 | 5.39% | 6x | Standard operating point |
-| 400 | 7.18% | 8x | Low compression |
-| 500 | 8.98% | 10x | Minimal compression |
+| 20 | 0.36% | 1x | Ultra-extreme compression |
+| 30 | 0.54% | 1.5x | Very extreme compression |
+| 40 | 0.72% | 2x | Extreme compression |
+| 50 | 0.90% | 2.5x | High compression |
+| 100 | 1.80% | 5x | High compression |
+| 200 | 3.59% | 10x | Moderate compression |
+| 300 | 5.39% | 15x | Standard operating point |
+| 400 | 7.18% | 20x | Low compression |
+| 500 | 8.98% | 25x | Minimal compression |
 
-At k = 50, approximately 2 municipalities per state on average (50/27 ~ 1.85), creating tight constraints. At k = 500, roughly 18.5 per state, allowing more flexibility.
+At k = 20, less than 1 municipality per state on average (20/27 ~ 0.74), creating extreme constraint tension where some states must go unrepresented unless quotas guarantee at least 1. At k = 500, roughly 18.5 per state, allowing more flexibility.
 
 ---
 

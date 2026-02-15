@@ -12,11 +12,11 @@ The framework operates on **municipality-level telecom indicators** from Brazil,
 
 | File | Size | Rows | Description |
 |------|------|------|-------------|
-| `smp_main.csv` | 91 MB | 5,569 | Main features: 621 numeric covariates per municipality |
-| `metadata.csv` | 346 KB | 5,569 | Geographic metadata: coordinates, state codes, names |
-| `city_populations.csv` | 168 KB | 5,569 | Population counts per municipality |
+| `smp_main.csv` | 90 MB | 5,570 | 1,919 columns: 1,011 feature columns + 905 missingness indicators + 3 identifiers |
+| `metadata.csv` | 346 KB | 5,570 | Geographic metadata: coordinates, state codes, names |
+| `city_populations.csv` | 168 KB | 5,570 | Population counts per municipality |
 
-**Snapshot date:** September 2025
+**Target snapshots:** Targets reference multiple temporal snapshots depending on the variable (coverage targets: March/June/September 2025; HHI: 2024; Densidade: 2025; speed/income/schools: cross-sectional, no temporal suffix).
 
 **Data loader:** `coreset_selection/data/brazil_telecom_loader.py` (`BrazilTelecomDataLoader` class)
 
@@ -43,9 +43,11 @@ The framework operates on **municipality-level telecom indicators** from Brazil,
 
 | Property | Value | Source |
 |----------|-------|--------|
-| Municipalities (N) | 5,569 | All Brazilian municipalities |
+| Municipalities (N) | 5,570 | All Brazilian municipalities |
 | States (G) | 27 | 26 states + Federal District (DF) |
-| Features (D) | 621 | Numeric covariates after preprocessing |
+| Features (D_total) | 1,863 | Total features after target exclusion |
+| Substantive features (D_non_miss) | 973 | Original feature columns (excluding missingness indicators) |
+| Missingness indicators (D_miss) | 890 | Binary indicators for columns with NaN/Inf values |
 | Primary targets | 2 | 4G and 5G area coverage |
 | Total coverage targets | 10 | Table V targets |
 | Extra regression targets | 12 | Speed, income, HHI, infrastructure |
@@ -67,7 +69,7 @@ SP (Sao Paulo), SE (Sergipe), TO (Tocantins)
 
 ## 3. Feature Categories -- Complete Inventory
 
-The 621 numeric covariates span the following categories:
+The 1,863 features (after target exclusion) span the following categories:
 
 ### Population & Geography
 
@@ -208,9 +210,25 @@ The feature typing system follows a strict priority order:
 | `y_4G` / `cov_area_4G` | Area 4G | Mean 4G area coverage (%) | Mean across operators (excluding "op_todas") |
 | `y_5G` / `cov_area_5G` | Area 5G | Mean 5G area coverage (%) | Mean across operators (excluding "op_todas") |
 
-**Source columns:** `cov_pct_area_coberta__tec_{4g,5g}__op_{operator}__2025_09`
+**Source columns:** `cov_pct_area_coberta__tec_{4g,5g}__op_{operator}__2025_09` (September 2025 snapshot)
 
 **Conversion:** If values are in [0, 1.5] range (fractions), they are multiplied by 100 to obtain percentage points.
+
+### How Targets Are Obtained
+
+Targets are constructed in two distinct ways, depending on their nature:
+
+**1. Operator-mean coverage targets (10 targets):** Computed as the **arithmetic mean across operators** at a **specific temporal snapshot**. For each municipality, the per-operator coverage columns (e.g., `cov_pct_area_coberta__tec_4g__op_claro__2025_09`, `...__op_vivo__2025_09`, `...__op_tim__2025_09`) are averaged — excluding the aggregate "op_todas" column to avoid double-counting. The snapshot `2025_09` (September 2025) is used for all 10 coverage targets. These are **cross-operator statistics at a point in time**.
+
+**2. Extra regression targets (12 targets):** Taken **directly from individual columns** in the CSV — each is a single pre-computed value per municipality. Their temporal reference varies:
+- `HHI SMP_2024`, `HHI SCM_2024`: **Annual 2024 snapshot** (Herfindahl-Hirschman market concentration index)
+- `Densidade_Banda Larga Fixa_2025`, `Densidade_Telefonia Movel_2025`: **Annual 2025 snapshot** (service density per capita)
+- `velocidade_mediana_mean`, `velocidade_mediana_std`: **Cross-sectional statistics** (mean/std of median broadband speed across measurement periods)
+- `pct_limite_mean`: **Cross-sectional statistic** (mean speed cap ratio)
+- `renda_media_mean`, `renda_media_std`: **Cross-sectional statistics** (mean/std of household income)
+- `pct_escolas_internet`, `pct_escolas_fibra`, `pct_fibra_backhaul`: **Cross-sectional** (percentage indicators, no temporal suffix)
+
+**3. Classification targets (15 targets):** **Engineered** from the extra regression targets and other feature columns via binning (tercile, quartile, quintile, or extreme-4class boundaries computed on the data) or thresholding (e.g., `HHI >= 0.25`). These are derived statistics, not raw snapshots.
 
 ### 5.2 Derived Coverage Targets (8, from Table V)
 
@@ -328,7 +346,7 @@ Output: N x (D_full + metadata_cols) DataFrame
 
 - Load each CSV with column name standardization
 - Inner-join on `codigo_ibge` (7-digit IBGE municipality code)
-- Verify N = 5,569 rows after merge
+- Verify N = 5,570 rows after merge
 
 ### Step 2: Column Name Standardization
 
@@ -619,18 +637,18 @@ Checks that all required keys exist in the `.npz` file before loading.
 
 | Array | Expected Shape |
 |-------|---------------|
-| X_scaled | (5569, 621) |
-| state_labels | (5569,) with 27 unique values |
-| y_4G, y_5G | (5569,) each |
-| Z_vae | (5569, 32) |
-| Z_pca | (5569, 32) |
+| X_scaled | (5570, 1863) |
+| state_labels | (5570,) with 27 unique values |
+| y_4G, y_5G | (5570,) each |
+| Z_vae | (5570, 32) |
+| Z_pca | (5570, 32) |
 | eval_idx | (2000,) |
 
 ### Validation Checks
 
-1. **Row count:** N = 5,569 after merge
+1. **Row count:** N = 5,570 after merge
 2. **State count:** G = 27 unique state codes
-3. **Feature count:** D >= 600 numeric covariates (exact count may vary with preprocessing options)
+3. **Feature count:** D_total = 1,863 after target exclusion (D_non_miss = 973 substantive features + D_miss = 890 missingness indicators)
 4. **No NaN:** X_scaled contains no NaN or Inf values after imputation
 5. **Target range:** Coverage targets in [0, 100] percentage range
 6. **Population:** All positive, sum > 200 million (Brazil's total population)

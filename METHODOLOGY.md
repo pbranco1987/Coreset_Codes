@@ -8,11 +8,11 @@ This document provides the complete mathematical reference for all algorithms, o
 
 | Symbol | Definition | Value / Range |
 |--------|-----------|---------------|
-| N | Number of municipalities | 5,569 |
+| N | Number of municipalities | 5,570 |
 | G | Number of geographic groups (states) | 27 |
-| D | Number of features (after preprocessing) | 621 |
+| D | Number of features (after preprocessing) | 1,863 total (973 substantive + 890 missingness indicators) |
 | d_z | Latent/embedding dimension | 32 (default) |
-| k | Coreset cardinality | {50, 100, 200, 300, 400, 500} |
+| k | Coreset cardinality | {20, 30, 40, 50, 100, 200, 300, 400, 500} |
 | S | Selected subset (coreset) | S subset of {1,...,N}, \|S\| = k |
 | x | Binary decision mask | x in {0,1}^N |
 | I_g | Index set of group g | I_g = {i : g_i = g} |
