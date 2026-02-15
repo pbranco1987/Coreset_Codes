@@ -78,6 +78,7 @@ def build_scenario_command(
     fail_fast: bool = False,
     parallel_experiments: Optional[int] = None,
     python_executable: str = "python",
+    resume: bool = False,
 ) -> List[str]:
     """Build command-line arguments for running a single scenario."""
     cmd = [
@@ -101,6 +102,9 @@ def build_scenario_command(
 
     if fail_fast:
         cmd.append("--fail-fast")
+
+    if resume:
+        cmd.append("--resume")
 
     # Thread control: forward the number of concurrent experiments so each
     # subprocess can self-limit BLAS/OpenMP threads (see run_scenario.py).

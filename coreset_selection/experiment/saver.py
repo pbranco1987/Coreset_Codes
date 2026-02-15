@@ -86,6 +86,67 @@ def claim_next_rep_id(output_dir: str, run_name: str) -> int:
             candidate += 1            # someone else got it, try next
 
 
+# ---------------------------------------------------------------------------
+# Resume helpers — detect completed / incomplete replicates
+# ---------------------------------------------------------------------------
+
+_REP_PATTERN = re.compile(r"^rep(\d+)$")
+
+
+def scan_existing_reps(output_dir: str, run_name: str) -> List[int]:
+    """Return sorted list of existing repNN IDs for a run.
+
+    Parameters
+    ----------
+    output_dir : str
+        Base output directory (e.g. ``"runs_out_seed123"``).
+    run_name : str
+        Run name (e.g. ``"R1_k300"``).
+
+    Returns
+    -------
+    List[int]
+        Sorted rep IDs whose directories exist (may or may not be complete).
+    """
+    run_dir = os.path.join(output_dir, run_name)
+    reps: List[int] = []
+    try:
+        for entry in os.listdir(run_dir):
+            m = _REP_PATTERN.match(entry)
+            if m and os.path.isdir(os.path.join(run_dir, entry)):
+                reps.append(int(m.group(1)))
+    except FileNotFoundError:
+        pass
+    return sorted(reps)
+
+
+def is_rep_complete(output_dir: str, run_name: str, rep_id: int) -> bool:
+    """Check whether a ``(run_name, rep_id)`` finished successfully.
+
+    A replicate is considered complete when its ``results/`` directory
+    contains ``wall_clock.json`` **and** at least one of:
+
+    * ``all_results.csv`` — standard experiment output, or
+    * ``quota_path.json`` — R0 quota-computation output.
+
+    Parameters
+    ----------
+    output_dir : str
+        Base output directory.
+    run_name : str
+        Run name (e.g. ``"R1_k300"``).
+    rep_id : int
+        Replicate index.
+    """
+    results_dir = os.path.join(
+        output_dir, run_name, f"rep{rep_id:02d}", "results",
+    )
+    has_wall_clock = os.path.isfile(os.path.join(results_dir, "wall_clock.json"))
+    has_all_results = os.path.isfile(os.path.join(results_dir, "all_results.csv"))
+    has_quota_path = os.path.isfile(os.path.join(results_dir, "quota_path.json"))
+    return has_wall_clock and (has_all_results or has_quota_path)
+
+
 @dataclass
 class ParetoFrontData:
     """

@@ -47,6 +47,7 @@ SEED=123
 TOTAL_CORES=64         # conservative default — won't hog the cluster
 MODE="individual"      # print per-tab commands
 SKIP_CACHE=false
+RESUME=false
 SCENARIO_LIST=""
 
 # ---------------------------------------------------------------------------
@@ -62,6 +63,7 @@ while [[ $# -gt 0 ]]; do
         --tabs)           MODE="tabs"; shift ;;
         --tmux)           MODE="tmux"; shift ;;
         --skip-cache)     SKIP_CACHE=true; shift ;;
+        --resume)         RESUME=true; shift ;;
         --help|-h)
             cat <<'HELPEOF'
 Usage: bash launch_all.sh [OPTIONS]
@@ -80,6 +82,9 @@ Options:
   --tmux               Create a tmux session with one pane per scenario.
 
   --skip-cache         Skip Phase 0 cache pre-build (if already built).
+
+  --resume             Resume mode: skip completed (run, k, rep) combos,
+                       re-run incomplete ones, create missing.
 
 Examples:
   bash launch_all.sh                             # 64 cores, print tab commands
@@ -123,8 +128,13 @@ echo "  Scenarios:             $N_SCENARIOS (${SCENARIOS[*]})"
 echo "  Threads per scenario:  $THREADS_PER_SCENARIO"
 echo "  Actual cores used:     $ACTUAL_CORES_USED / $MACHINE_CORES"
 echo "  Mode:                  $MODE"
+echo "  Resume:                $RESUME"
 echo "================================================================"
 echo ""
+
+# Build resume flag string
+RESUME_FLAG=""
+if [ "$RESUME" = true ]; then RESUME_FLAG="--resume"; fi
 
 if [ "$ACTUAL_CORES_USED" -gt "$((MACHINE_CORES * 3 / 4))" ] 2>/dev/null; then
     echo "  WARNING: Using $ACTUAL_CORES_USED of $MACHINE_CORES cores (>75%)."
@@ -209,7 +219,7 @@ individual)
 
     for RUN_ID in "${SCENARIOS[@]}"; do
         echo "# --- $RUN_ID ---"
-        echo "python -m coreset_selection.run_scenario $RUN_ID --data-dir $DATA_DIR --output-dir $OUTPUT_DIR --cache-dir $CACHE_DIR --seed $SEED --parallel-experiments $N_SCENARIOS"
+        echo "python -m coreset_selection.run_scenario $RUN_ID --data-dir $DATA_DIR --output-dir $OUTPUT_DIR --cache-dir $CACHE_DIR --seed $SEED --parallel-experiments $N_SCENARIOS $RESUME_FLAG"
         echo ""
     done
 
@@ -222,7 +232,7 @@ individual)
         echo "# ===================== $RUN_ID ====================="
         echo "$ENV_BLOCK"
         echo "cd $PROJECT_DIR"
-        echo "python -m coreset_selection.run_scenario $RUN_ID --data-dir $DATA_DIR --output-dir $OUTPUT_DIR --cache-dir $CACHE_DIR --seed $SEED --parallel-experiments $N_SCENARIOS"
+        echo "python -m coreset_selection.run_scenario $RUN_ID --data-dir $DATA_DIR --output-dir $OUTPUT_DIR --cache-dir $CACHE_DIR --seed $SEED --parallel-experiments $N_SCENARIOS $RESUME_FLAG"
         echo ""
     done
 
@@ -258,7 +268,7 @@ batch)
             --cache-dir "$CACHE_DIR" \
             --seed $SEED \
             --parallel-experiments $N_SCENARIOS \
-            --fail-fast \
+            --fail-fast $RESUME_FLAG \
             > "$LOG_FILE" 2>&1 &
 
         PIDS+=($!)
@@ -310,7 +320,7 @@ python -m coreset_selection.run_scenario $RUN_ID \
     --output-dir '$OUTPUT_DIR' \
     --cache-dir '$CACHE_DIR' \
     --seed $SEED \
-    --parallel-experiments $N_SCENARIOS; \
+    --parallel-experiments $N_SCENARIOS $RESUME_FLAG; \
 echo ''; echo '=== $RUN_ID FINISHED (exit \$?) ==='; read -p 'Press Enter to close.'"
 
         TAB_ARGS+=(--tab --title="$RUN_ID" -- bash -c "$CMD")
@@ -353,7 +363,7 @@ cd '$PROJECT_DIR'"
         tmux send-keys -t "$SESSION" \
             "python -m coreset_selection.run_scenario $RUN_ID \
 --data-dir '$DATA_DIR' --output-dir '$OUTPUT_DIR' --cache-dir '$CACHE_DIR' \
---seed $SEED --parallel-experiments $N_SCENARIOS" Enter
+--seed $SEED --parallel-experiments $N_SCENARIOS $RESUME_FLAG" Enter
     done
 
     tmux select-layout -t "$SESSION" tiled

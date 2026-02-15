@@ -117,6 +117,7 @@ def run_scenarios_parallel_subprocess(
     verbose: bool = True,
     python_executable: str = "python",
     k_override: Optional[int] = None,
+    resume: bool = False,
 ) -> Dict[str, dict]:
     """
     Run scenarios in parallel using subprocesses.
@@ -199,6 +200,7 @@ def run_scenarios_parallel_subprocess(
                 fail_fast=fail_fast,
                 parallel_experiments=effective_workers,
                 python_executable=python_executable,
+                resume=resume,
             )
             commands[run_id] = cmd
 
@@ -260,6 +262,7 @@ def run_scenarios_sequential(
     fail_fast: bool = False,
     verbose: bool = True,
     k_override: Optional[int] = None,
+    resume: bool = False,
 ) -> Dict[str, dict]:
     """Run scenarios sequentially (for testing or single-core systems)."""
     from .scenario import run_scenario_standalone
@@ -288,6 +291,7 @@ def run_scenarios_sequential(
                 k_values=[k_override] if k_override is not None else None,
                 fail_fast=fail_fast,
                 verbose=verbose,
+                resume=resume,
             )
             results[run_id] = summary
 
@@ -413,6 +417,16 @@ Examples:
     )
 
     parser.add_argument(
+        "--resume",
+        action="store_true",
+        help=(
+            "Resume mode: skip completed (run, k, rep) combinations, "
+            "re-run incomplete ones reusing the same rep ID and seed, "
+            "and create new reps only if the target count is not reached."
+        )
+    )
+
+    parser.add_argument(
         "--generate-commands",
         action="store_true",
         help="Generate shell commands for external parallel execution"
@@ -493,6 +507,8 @@ Examples:
         print(f"Mode: {'sequential' if args.sequential else 'parallel'}")
         if args.k is not None:
             print(f"K override: {args.k}  (output → {args.output_dir}/k{args.k}/)")
+        if args.resume:
+            print(f"Resume: ON (skipping completed runs)")
         print(f"{'='*60}\n")
 
     if args.sequential:
@@ -506,6 +522,7 @@ Examples:
             fail_fast=args.fail_fast,
             verbose=verbose,
             k_override=args.k,
+            resume=args.resume,
         )
     else:
         results = run_scenarios_parallel_subprocess(
@@ -521,6 +538,7 @@ Examples:
             verbose=verbose,
             python_executable=args.python,
             k_override=args.k,
+            resume=args.resume,
         )
 
     elapsed = time.time() - start_time

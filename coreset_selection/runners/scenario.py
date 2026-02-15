@@ -108,7 +108,7 @@ from ..config.dataclasses import ExperimentConfig
 from ..config.run_specs import get_run_specs, apply_run_spec, K_GRID, D_GRID, RunSpec
 from ..data.cache import ensure_replicate_cache, prebuild_full_cache
 from ..experiment.runner import run_single_experiment
-from ..experiment.saver import claim_next_rep_id
+from ..experiment.saver import claim_next_rep_id, is_rep_complete, scan_existing_reps
 from ..utils.debug_timing import timer, DEBUG_ENABLED
 
 
@@ -134,6 +134,8 @@ def run_scenario_standalone(
     source_k: int = None,
     # Cache control
     force_rebuild_cache: bool = False,
+    # Resume control
+    resume: bool = False,
 ) -> dict:
     """
     Run a single experiment scenario (R0-R14) as a standalone job.
@@ -187,6 +189,11 @@ def run_scenario_standalone(
         (R6 only) Source space: vae|pca|raw
     source_k : int
         (R6 only) k value for source run
+    resume : bool
+        Resume mode: skip completed ``(run_name, rep)`` combinations,
+        re-run incomplete ones (reusing the same rep ID and seed), and
+        only create new rep IDs when the target replicate count has not
+        been reached.  Preserves seed and cache consistency.
 
     Returns
     -------
@@ -378,6 +385,7 @@ def run_scenario_standalone(
         # cross-experiment comparison.
         # --------------------------------------------------------------
         k_to_rep_ids: Dict[int, List[int]] = {}
+        n_skipped = 0   # track reps skipped by resume
         for k in k_values:
             # Include dimension suffix in run name when sweeping dim
             if len(k_values) > 1:
@@ -387,6 +395,41 @@ def run_scenario_standalone(
             n_reps_per_k = _n_reps_for(k)
             if _explicit_rep_ids is not None:
                 k_to_rep_ids[k] = list(_explicit_rep_ids)
+            elif resume:
+                # ----------------------------------------------------------
+                # Resume mode: scan existing reps, skip complete, reuse
+                # incomplete, create new only if target count not reached.
+                # ----------------------------------------------------------
+                existing = scan_existing_reps(output_dir, run_name)
+                complete = [r for r in existing
+                            if is_rep_complete(output_dir, run_name, r)]
+                incomplete = [r for r in existing
+                              if not is_rep_complete(output_dir, run_name, r)]
+                needed = n_reps_per_k - len(complete)
+
+                if needed <= 0:
+                    # All target reps are done for this k
+                    if verbose:
+                        print(f"[resume] {run_name}: "
+                              f"{len(complete)}/{n_reps_per_k} complete, "
+                              f"skipping")
+                    k_to_rep_ids[k] = []
+                    n_skipped += len(complete)
+                else:
+                    # Reuse incomplete reps first, then create new ones
+                    reps_to_run = incomplete[:needed]
+                    still_needed = needed - len(reps_to_run)
+                    for _ in range(still_needed):
+                        reps_to_run.append(
+                            claim_next_rep_id(output_dir, run_name))
+                    k_to_rep_ids[k] = reps_to_run
+                    n_skipped += len(complete)
+                    if verbose:
+                        print(f"[resume] {run_name}: "
+                              f"{len(complete)} done, "
+                              f"{len(incomplete)} incomplete, "
+                              f"{still_needed} new "
+                              f"→ running {len(reps_to_run)}")
             else:
                 k_to_rep_ids[k] = [
                     claim_next_rep_id(output_dir, run_name)
@@ -395,6 +438,13 @@ def run_scenario_standalone(
 
         # Unique rep_ids across all k values (usually the same set).
         all_rep_ids = sorted(set(r for reps in k_to_rep_ids.values() for r in reps))
+
+        # Adjust total progress count when resume skipped some reps.
+        if resume and n_skipped > 0:
+            n_total = max(0, n_total - n_skipped)
+            if verbose:
+                print(f"[resume] Skipped {n_skipped} already-complete reps "
+                      f"(remaining: {n_total})")
 
         if spec.cache_build_mode != "skip" and all_rep_ids:
             if verbose:
@@ -431,6 +481,15 @@ def run_scenario_standalone(
             current_rep_ids = k_to_rep_ids[k]
 
             for rep in current_rep_ids:
+                # Resume guard: double-check completion (another process
+                # may have finished this rep between Phase 1 and Phase 2).
+                if resume and is_rep_complete(output_dir, run_name, rep):
+                    if verbose:
+                        print(f"[resume] Skipping {run_name} rep={rep} "
+                              f"(already complete)")
+                    n_completed += 1
+                    continue
+
                 if verbose:
                     print(f"[{run_id}] Running {run_name} rep={rep} ({n_completed + n_failed + 1}/{n_total})...")
 
@@ -636,6 +695,16 @@ Scenarios (all run with 1 replicate by default):
         help="Force rebuild of replicate caches even if they already exist"
     )
 
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help=(
+            "Resume mode: skip completed (run, k, rep) combinations, "
+            "re-run incomplete ones reusing the same rep ID and seed, "
+            "and create new reps only if the target count is not reached."
+        )
+    )
+
     # R6-specific options
     parser.add_argument(
         "--source-run",
@@ -698,6 +767,7 @@ Scenarios (all run with 1 replicate by default):
             source_space=args.source_space,
             source_k=args.source_k,
             force_rebuild_cache=args.force_rebuild_cache,
+            resume=args.resume,
         )
 
         if summary["status"] == "success":
