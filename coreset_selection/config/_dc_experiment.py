@@ -46,8 +46,8 @@ class EffortSweepGrid:
         If True, zip pop_sizes and n_gens pair-wise.  If False (default),
         iterate over the full Cartesian product.
     """
-    pop_sizes: Tuple[int, ...] = (20, 50, 100, 150, 200, 300, 400)
-    n_gens: Tuple[int, ...] = (100, 300, 500, 700, 1000, 1500, 2000)
+    pop_sizes: Tuple[int, ...] = (20, 50, 100, 150, 200, 300)
+    n_gens: Tuple[int, ...] = (100, 300, 500, 700, 1000, 1500)
     paired: bool = True
 
     def grid(self) -> List[Tuple[int, int]]:

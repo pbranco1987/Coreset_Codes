@@ -52,8 +52,8 @@ class EffortMixin:
         env_gen = os.environ.get("CORESET_R12_N_GENS")
         if env_pop or env_gen:
             # Legacy env-var path (Cartesian product for backward compat)
-            pop_sizes = [int(x.strip()) for x in (env_pop or "20,50,100,150,200,300,400").split(",") if x.strip()]
-            n_gens = [int(x.strip()) for x in (env_gen or "100,300,500,700,1000,1500,2000").split(",") if x.strip()]
+            pop_sizes = [int(x.strip()) for x in (env_pop or "20,50,100,150,200,300").split(",") if x.strip()]
+            n_gens = [int(x.strip()) for x in (env_gen or "100,300,500,700,1000,1500").split(",") if x.strip()]
             grid = [(p, t) for p in pop_sizes for t in n_gens]
             print(f"[R12] Effort grid from env vars (Cartesian): {len(grid)} combos", flush=True)
         else:

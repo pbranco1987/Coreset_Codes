@@ -43,10 +43,10 @@ from .dataclasses import ExperimentConfig
 
 
 # Manuscript cardinality grid 𝒦
-K_GRID: Tuple[int, ...] = (20, 30, 40, 50, 100, 200, 300, 400, 500)
+K_GRID: Tuple[int, ...] = (30, 50, 100, 200, 300, 400, 500)
 
 # Representation dimension grid for VAE/PCA sweep (R13/R14)
-D_GRID: Tuple[int, ...] = (4, 8, 16, 32, 64, 128)
+D_GRID: Tuple[int, ...] = (8, 16, 32, 64)
 
 
 @dataclass(frozen=True)
@@ -240,7 +240,7 @@ def get_run_specs() -> Dict[str, RunSpec]:
             requires_pca=True,
         ),
 
-        # R10: baseline suite (VAE space)
+        # R10: baseline suite (VAE space) — 5 replicates matching R1's seeds
         "R10": RunSpec(
             run_id="R10",
             description="Baseline suite: VAE space (with diagnostics + constraints as configured)",
@@ -248,7 +248,7 @@ def get_run_specs() -> Dict[str, RunSpec]:
             objectives=(),
             constraint_mode="population_share",
             sweep_k=None,
-            n_reps=1,
+            n_reps=5,
             baselines_enabled=True,
             eval_enabled=True,
             requires_vae=True,
