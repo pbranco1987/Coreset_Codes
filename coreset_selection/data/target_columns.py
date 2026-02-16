@@ -33,7 +33,7 @@ import numpy as np
 # target and must be excluded from the covariate matrix.
 
 TARGET_COLUMN_PATTERNS: List[re.Pattern] = [
-    # Primary targets: 4G/5G area-coverage columns
+    # ── Primary targets: 4G/5G area-coverage columns ──
     re.compile(r"^cov_area_4g$", re.IGNORECASE),
     re.compile(r"^cov_area_5g$", re.IGNORECASE),
     # Additional coverage indicators used as multi-target KRR targets
@@ -50,25 +50,51 @@ TARGET_COLUMN_PATTERNS: List[re.Pattern] = [
     re.compile(r"^target_", re.IGNORECASE),
     # Coverage-related columns that leak target information
     re.compile(r"cobertura_area_(4g|5g)", re.IGNORECASE),
-    # Extra regression targets (must not appear in features)
+
+    # ── Extra regression targets (must not appear in features) ──
+    # Speed: all aggregations (mean/std/median) + agglomerate variant
     re.compile(r"^velocidade_mediana_(mean|std|median)$", re.IGNORECASE),
+    re.compile(r"^velocidade_mediana_agl_mean$", re.IGNORECASE),
     re.compile(r"^pct_limite_mean$", re.IGNORECASE),
+    # Income: all aggregations
     re.compile(r"^renda_media_(mean|std|median)$", re.IGNORECASE),
-    re.compile(r"^hhi\s*(smp|scm)_\d{4}$", re.IGNORECASE),
+    # Market concentration: all years (2019-2029 range covers historical + future)
+    re.compile(r"^hhi[\s_]*(smp|scm)[\s_]*\d{4}$", re.IGNORECASE),
+    # Fiber backhaul: percentage AND binary indicator + related columns
     re.compile(r"^pct_fibra_backhaul$", re.IGNORECASE),
-    re.compile(r"^pct_escolas_(internet|fibra)$", re.IGNORECASE),
-    re.compile(r"^densidade_(banda\s*larga\s*fixa|telefonia\s*m[oó]vel)_\d{4}$", re.IGNORECASE),
-    # Classification target source columns
+    re.compile(r"^backhaul_fibra_\d{4}$", re.IGNORECASE),
+    re.compile(r"^backhaul_ano_fibra$", re.IGNORECASE),
+    re.compile(r"^n_prestadoras_backhaul$", re.IGNORECASE),
+    # School connectivity: internet, fiber, AND adequate connectivity
+    re.compile(r"^pct_escolas_(internet|fibra|conect_adequada)$", re.IGNORECASE),
+    # Teledensity: ALL service types, ALL years (not just BLF and mobile)
+    re.compile(r"^densidade_.*_\d{4}$", re.IGNORECASE),
+    # Broadband access counts: Acessos_* = Densidade_* × population → leaks density
+    re.compile(r"^acessos_.*_\d{4}$", re.IGNORECASE),
+
+    # ── Classification target source columns ──
     re.compile(r"^pct_agl_alta_velocidade$", re.IGNORECASE),
     re.compile(r"^pct_urbano$", re.IGNORECASE),
+    # Complement of pct_urbano: pct_rural leaks urbanization target
+    re.compile(r"^pct_rural$", re.IGNORECASE),
     re.compile(r"^pct_cat_(low|high)_renda_(low|high)_vel$", re.IGNORECASE),
-    re.compile(r"^n_estacoes_smp$", re.IGNORECASE),
-    re.compile(r"^rod_pct_cob_todas_4g$", re.IGNORECASE),
-    # QoS / Satisfaction survey targets (ISG sub-components from Stage R).
-    # qf_mean is used as the QoS evaluation target; ISG and QIC are
-    # correlated sub-components (ISG = weighted composite of QF + QIC + QCR)
-    # that would create indirect target leakage if left in X.
-    re.compile(r"^(isg|qf|qic)(_\w+)?_mean$", re.IGNORECASE),
+    # Base stations: total (n_estacoes_smp) AND per-technology counts + percentages
+    # (per-tech counts sum to total → leak infra_density_tier)
+    re.compile(r"^n_estacoes_(smp|4g|5g|2g|3g|blf|tf|geral)$", re.IGNORECASE),
+    re.compile(r"^n_estacoes_ativas_", re.IGNORECASE),
+    re.compile(r"^pct_(4g|5g)_smp$", re.IGNORECASE),
+    re.compile(r"^n_entidades_smp$", re.IGNORECASE),
+    re.compile(r"^n_tecnologias_smp$", re.IGNORECASE),
+    # Road coverage: ALL operators, ALL technologies (not just todas_4g)
+    re.compile(r"^rod_pct_cob_", re.IGNORECASE),
+    # 5G/4G operator presence indicators (source for has_5g_coverage target)
+    re.compile(r"^att09_", re.IGNORECASE),
+
+    # ── QoS / Satisfaction survey targets (from Stage R) ──
+    # qf_mean (Qualidade do Funcionamento) is the QoS evaluation target.
+    # ISG = weighted composite of QF + QIC + QCR.  ALL components and
+    # their per-service variants must be excluded to prevent leakage.
+    re.compile(r"^(isg|qf|qic|qcr)(_\w+)?_mean$", re.IGNORECASE),
     re.compile(r"^n_respostas", re.IGNORECASE),
 ]
 

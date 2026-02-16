@@ -249,8 +249,8 @@ class EvalMixin:
                 entity_ids = _meta.get("entity_ids")
                 time_ids = _meta.get("time_ids")
 
-                # QoS target: prefer qf_mean (Qualidade do Funcionamento)
-                # from cache metadata; fall back to primary coverage target.
+                # QoS target: qf_mean (Qualidade do Funcionamento) from cache
+                # metadata; fall back to primary coverage target if absent.
                 _qos_y = _meta.get("qos_target")
                 if _qos_y is None:
                     _qos_y = (

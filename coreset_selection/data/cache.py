@@ -40,7 +40,7 @@ from sklearn.preprocessing import StandardScaler
 from ..config.dataclasses import ExperimentConfig, ReplicateAssets
 from ..utils.io import ensure_dir
 from ..utils.debug_timing import timer
-from .target_columns import detect_target_columns, remove_target_columns
+from .target_columns import detect_target_columns, remove_target_columns, validate_no_leakage
 from .split_persistence import save_splits
 from .derived_targets import extract_extra_regression_targets, derive_classification_targets
 
@@ -142,8 +142,10 @@ def build_replicate_cache(
                     n_cls=len(derived_cls),
                 )
 
-            # QoS target: Qualidade do Funcionamento (qf_mean) from Anatel
-            # ISG satisfaction survey — used by qos_tasks.py evaluation
+            # QoS target: qf_mean — Qualidade do Funcionamento (Technical
+            # Quality of Service) from Anatel satisfaction survey (Stage R).
+            # QF is a sub-component of ISG (= weighted composite of QF + QIC
+            # + QCR).  Used as the QoS evaluation target in qos_tasks.py.
             qos_target = None
             if raw_df is not None and "qf_mean" in raw_df.columns:
                 _qf = pd.to_numeric(raw_df["qf_mean"], errors="coerce")
@@ -360,6 +362,9 @@ def build_replicate_cache(
         Z_logvar = None
 
         if int(cfg.vae.epochs) > 0:
+            # Safety guard: ensure no target columns remain before representation learning
+            validate_no_leakage(preproc_meta["feature_names"])
+
             with timer.section("VAE_training", epochs=cfg.vae.epochs, latent_dim=cfg.vae.latent_dim):
                 use_cuda = torch.cuda.is_available() and str(cfg.device).startswith("cuda")
                 device = torch.device(cfg.device if use_cuda else "cpu")
@@ -380,6 +385,9 @@ def build_replicate_cache(
         # ------------------------------------------------------------
         Z_pca = None
         if int(cfg.pca.n_components) > 0:
+            # Safety guard: ensure no target columns remain before representation learning
+            validate_no_leakage(preproc_meta["feature_names"])
+
             with timer.section("PCA_fitting", n_components=cfg.pca.n_components):
                 pca = PCA(
                     n_components=int(cfg.pca.n_components),
@@ -630,6 +638,10 @@ def ensure_replicate_cache(cfg: ExperimentConfig, rep_id: int) -> str:
             import torch
             from ..models.vae import VAETrainer
 
+            # Safety guard: verify no target leakage before training on cached data
+            if "feature_names" in existing:
+                validate_no_leakage(list(existing["feature_names"]))
+
             print(f"[cache] rep{rep_id:02d}: Augmenting cache with VAE embeddings (missing from existing cache)", flush=True)
             X_scaled = np.asarray(existing["X_scaled"], dtype=np.float32)
             train_idx = np.asarray(existing["train_idx"], dtype=int)
@@ -645,6 +657,10 @@ def ensure_replicate_cache(cfg: ExperimentConfig, rep_id: int) -> str:
 
         # Add PCA embeddings if required and missing.
         if int(getattr(cfg.pca, "n_components", 0)) > 0 and "Z_pca" not in existing:
+            # Safety guard: verify no target leakage before training on cached data
+            if "feature_names" in existing:
+                validate_no_leakage(list(existing["feature_names"]))
+
             print(f"[cache] rep{rep_id:02d}: Augmenting cache with PCA embeddings (missing from existing cache)", flush=True)
             X_scaled = np.asarray(existing["X_scaled"], dtype=np.float32)
             train_idx = np.asarray(existing["train_idx"], dtype=int)
