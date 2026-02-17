@@ -401,8 +401,9 @@ def run_scenario_standalone(
         k_to_rep_ids: Dict[int, List[int]] = {}
         n_skipped = 0   # track reps skipped by resume
         for k in k_values:
-            # Include dimension suffix in run name when sweeping dim
-            if len(k_values) > 1:
+            # Include k suffix when the RunSpec defines a k-sweep, even if
+            # only a single k was passed on the CLI (e.g. parallel_runner).
+            if len(k_values) > 1 or spec.sweep_k is not None:
                 run_name = f"{run_id}_k{k}{dim_suffix}"
             else:
                 run_name = f"{run_id}{dim_suffix}"
@@ -496,7 +497,7 @@ def run_scenario_standalone(
         # PHASE 2: Run experiments (caches are guaranteed to exist)
         # --------------------------------------------------------------
         for k in k_values:
-            if len(k_values) > 1:
+            if len(k_values) > 1 or spec.sweep_k is not None:
                 run_name = f"{run_id}_k{k}{dim_suffix}"
             else:
                 run_name = f"{run_id}{dim_suffix}"

@@ -170,10 +170,9 @@ def run_scenarios_parallel_subprocess(
     # ------------------------------------------------------------------
     # Phase 1: Launch parallel subprocesses (caches are ready)
     # ------------------------------------------------------------------
-    # When k_override is set, organise output into a k-specific subfolder
+    # k-specific subfolder removed — scenario.py now always appends _k{k}
+    # when the RunSpec defines sweep_k.
     effective_output_dir = output_dir
-    if k_override is not None:
-        effective_output_dir = os.path.join(output_dir, f"k{k_override}")
 
     waves = topological_sort_scenarios(scenarios)
     all_results = {}
@@ -267,10 +266,9 @@ def run_scenarios_sequential(
     """Run scenarios sequentially (for testing or single-core systems)."""
     from .scenario import run_scenario_standalone
 
-    # When k_override is set, organise output into a k-specific subfolder
+    # k-specific subfolder removed — scenario.py now always appends _k{k}
+    # when the RunSpec defines sweep_k.
     effective_output_dir = output_dir
-    if k_override is not None:
-        effective_output_dir = os.path.join(output_dir, f"k{k_override}")
 
     results = {}
 

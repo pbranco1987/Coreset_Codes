@@ -119,7 +119,7 @@ Author Two\IEEEauthorrefmark{2}}
 %  Abstract (revised)
 % ================================================================
 \begin{abstract}
-Nationwide telecom analytics at municipality granularity often relies on kernel-based similarity measures, kernel principal component analysis (PCA), and kernel ridge regression (KRR), making the $\mathcal{O}(N^2)$ time and memory cost of full Gram matrices a recurring bottleneck across multiple targets, hyperparameter sweeps, and reporting snapshots. Nyström approximation mitigates this burden by selecting $k\!\ll\!N$ landmark municipalities to form a low-rank approximation of the kernel operator, but in region-conditioned reporting accurate global approximation alone is not sufficient: the selected subset must also preserve geographic composition so that state-level key performance indicators (KPIs), rankings, and map overlays remain comparable to those computed on the full population. We study exact-$k$ landmark selection under hard per-state capacity bounds together with Kullback--Leibler (KL) divergence based proportionality constraints defined over state memberships and associated nonnegative weights, enabling proportionality to be enforced with respect to municipality counts, population totals, or both simultaneously within a unified framework. For count-based proportionality, where integrality and finite state capacities can make exact matching infeasible at small cardinalities, we compute a capacity-aware KL-optimal integer quota and a cardinality-dependent feasibility floor $\KL_{\min}(k)$ that certifies the best attainable proportionality at each landmark size. Conditioned on feasibility, landmarks are selected via constrained Pareto optimization that balances global distribution matching through maximum mean discrepancy (MMD) with geometry-aware coverage through the debiased Sinkhorn divergence (SD). Experiments on $N=\datasetN$ Brazilian municipalities across $G=27$ states evaluate geographic composition error, Nyström approximation accuracy of the full kernel matrix, and downstream predictive performance, including multi-target coverage regression with Nyström-feature KRR, additional regression and classification benchmarks with $k$-nearest neighbors (KNN), Random Forest, Gradient Boosting, and Logistic Regression, and a quality-of-service (QoS) module when indicator panels are available. The results show that geographically consistent landmark sets can be constructed under tight cardinality constraints while preserving kernel approximation quality and maintaining competitive performance across diverse targets and learning models.
+Nationwide telecom analytics at municipality granularity often relies on kernel-based similarity measures, kernel principal component analysis (PCA), and kernel ridge regression (KRR), making the $\mathcal{O}(N^2)$ time and memory cost of full Gram matrices a recurring bottleneck across multiple targets, hyperparameter sweeps, and reporting periods. Nyström approximation mitigates this burden by selecting $k\!\ll\!N$ landmark municipalities to form a low-rank approximation of the kernel operator, but in region-conditioned reporting accurate global approximation alone is not sufficient: the selected subset must also preserve geographic composition so that state-level key performance indicators (KPIs), rankings, and map overlays remain comparable to those computed on the full population. We study exact-$k$ landmark selection under hard per-state capacity bounds together with Kullback--Leibler (KL) divergence based proportionality constraints defined over state memberships and associated nonnegative weights, enabling proportionality to be enforced with respect to municipality counts, population totals, or both simultaneously within a unified framework. For count-based proportionality, where integrality and finite state capacities can make exact matching infeasible at small cardinalities, we compute a capacity-aware KL-optimal integer quota and a cardinality-dependent feasibility floor $\KL_{\min}(k)$ that certifies the best attainable proportionality at each landmark size. Conditioned on feasibility, landmarks are selected via constrained Pareto optimization that balances global distribution matching through maximum mean discrepancy (MMD) with geometry-aware coverage through the debiased Sinkhorn divergence (SD). Experiments on $N=\datasetN$ Brazilian municipalities across $G=27$ states evaluate geographic composition error, Nyström approximation accuracy of the full kernel matrix, and downstream predictive performance, including multi-target coverage regression with Nyström-feature KRR, additional regression and classification benchmarks with $k$-nearest neighbors (KNN), Random Forest, Gradient Boosting, and Logistic Regression, and a quality-of-service (QoS) module when indicator panels are available. The results show that geographically consistent landmark sets can be constructed under tight cardinality constraints while preserving kernel approximation quality and maintaining competitive performance across diverse targets and learning models.
 \end{abstract}
 
 
@@ -160,7 +160,7 @@ A persistent bottleneck is that many nonlinear models and diagnostics are operat
 Gram matrices, kernel principal component analysis (PCA), kernel ridge regression (KRR), or similarity graphs whose naive construction scales as
 $\mathcal{O}(N^2)$ in time and memory \cite{scholkopf2002learning,liu2010kaf,engel2004krls}. This quadratic cost
 becomes especially visible when the same pipeline is rerun across multiple key performance indicators (KPIs), hyperparameter grids, and repeated
-reporting snapshots. Similar scaling pressures appear well beyond telecom, motivating approximation-based kernel
+reporting periods. Similar scaling pressures appear well beyond telecom, motivating approximation-based kernel
 pipelines in settings ranging from compact kernel regressions and randomized operator sketches to engineering
 inference and control-oriented embeddings \cite{pinar_rice_hi_anderson_havens_2017,atlante_trinchero_stievano_mihai_2025,ren_ren_ma_li_dai_2025,afaq_muhammad_2025}.
 
@@ -213,8 +213,8 @@ Our empirical protocol is designed to reflect the mixed-type nature of telecom t
 We treat the covariate matrix as mixed-type and apply a type-aware preprocessing pipeline (type inference, imputation, optional
 $\log(1{+}x)$ transforms for heavy-tailed nonnegative continuous features, standardization for continuous/ordinal variables, stable
 integer encoding for categorical variables with an explicit missing category, and missingness indicators for non-categorical features).
-Landmark selection is performed once per snapshot and configuration, enabling repeated downstream analytics at lower cost.
-We evaluate on $N=\datasetN$ Brazilian municipalities across $G=27$ states using a common scorecard that includes:
+Landmark selection is performed once per cross-section and configuration, enabling repeated downstream analytics at lower cost.
+We evaluate on $N=\datasetN$ Brazilian municipalities across $G=27$ states using a common evaluation protocol that includes:
 (i) composition diagnostics (municipality-share and population-share drift),
 (ii) operator fidelity (Nyström Gram-matrix approximation error and kernel-PCA spectral distortion), and
 (iii) downstream utility.
@@ -279,12 +279,12 @@ benchmarking, and audit-oriented reporting. Typical deliverables include nationa
 with state-conditioned summaries (per-state KPIs, rankings, and map overlays) consumed by operational and regulatory
 workflows. In Brazil, these tables can be assembled by merging ANATEL infrastructure and coverage releases with IBGE
 municipality identifiers and auxiliary metadata \cite{anatelEstacoesLicenciadasSMP,anatelCoberturaMovel,ibgeLocalidades,ibgePopEst2025}.
-Because these deliverables are regenerated across reporting snapshots, the reduced datasets used for scalable computation
+Because these deliverables are regenerated across reporting cross-sections, the reduced datasets used for scalable computation
 must preserve both global structure and state-level interpretability.
 
 The covariates are mixed-type (continuous, ordinal, categorical) with structured missingness; a type-aware preprocessing pipeline (Section~\ref{sec:exp_eval}) maps them to a consistent numeric representation respecting categorical semantics.
 
-Kernel-based workloads (Gram matrices, kernel PCA, KRR) scale as $\mathcal{O}(N^2)$ and become a bottleneck across targets and reporting snapshots \cite{scholkopf2002learning,engel2004krls,liu2010kaf}. Nyström
+Kernel-based workloads (Gram matrices, kernel PCA, KRR) scale as $\mathcal{O}(N^2)$ and become a bottleneck across targets and reporting cross-sections \cite{scholkopf2002learning,engel2004krls,liu2010kaf}. Nyström
 approximation mitigates this cost by selecting $k\ll N$ landmarks and forming a low-rank kernel sketch \cite{williams2001nystrom,gittens2016nystrom}.
 
 We impose hard structural constraints aligned with the reporting interface. Let $S$ denote a landmark subset
@@ -353,31 +353,9 @@ expressions are drawn.
 
 Let $N$ denote the total number of municipalities and $D$ the number of processed covariates.
 Let $\{x_i\}_{i=1}^N \subset \R^D$ denote processed municipality covariate vectors. Let $G$ denote the number of
-states and let $g_i\in\{1,\dots,G\}$ denote the state label of municipality $i$. For each state $g$, define the index set and its capacity as
-\begin{equation*}
-\begin{aligned}
-&I_g := \{ i\in\{1,\dots,N\} : g_i=g\},\\
-&n_g := |I_g|.
-\end{aligned}
-\end{equation*}
-A landmark set is a subset $S\subseteq\{1,\dots,N\}$ of fixed cardinality $|S|=k$. We also use the binary encoding
-$s\in\{0,1\}^N$ with
-\begin{equation}
-\label{eq:exactk}
-\sum_{i=1}^N s_i = k,
-\end{equation}
-and the mapping $S=\{i:s_i=1\}$. State counts in a subset are
-\begin{equation*}
-\begin{aligned}
-&c_g(S) := |S\cap I_g|,\\
-&c(S):=(c_1(S),\dots,c_G(S)).
-\end{aligned}
-\end{equation*}
-We impose hard per-state bounds
-\begin{equation*}
-\ell_g \le c_g(S)\le n_g,
-\end{equation*}
-where $g=1,\dots,G$ and where $\ell_g\ge 0$ can enforce minimum representation when required by the reporting interface. Hard group bounds of
+states and let $g_i\in\{1,\dots,G\}$ denote the state label of municipality $i$. For each state $g$, define the index set and its capacity as $I_g := \{ i\in\{1,\dots,N\} : g_i=g\}$, $n_g := |I_g|$.
+A landmark set is a subset $S\subseteq\{1,\dots,N\}$ of fixed cardinality $|S|=k$. We also use the binary encoding $s\in\{0,1\}^N$ with 
+$\sum_{i=1}^N s_i = k$, and the mapping $S=\{i:s_i=1\}$. State counts in a subset are $c_g(S) := |S\cap I_g|$, $c(S):=(c_1(S),\dots,c_G(S))$. We impose hard per-state bounds $\ell_g \le c_g(S)\le n_g$, where $g=1,\dots,G$ and where $\ell_g\ge 0$ can enforce minimum representation when required by the reporting interface. Hard group bounds of
 this form are closely related to feasibility constraints that appear in fair clustering and constrained selection,
 where representation is treated as a structural requirement rather than a soft preference \cite{chierichetti2017fair,bera2019fair,celis2018fair}.
 From an optimization standpoint, exact-$k$ subset selection with nontrivial objectives and constraints is combinatorial
@@ -411,10 +389,9 @@ Given a landmark set $S$ with $|S|=k\ll N$, Nyström approximation constructs a 
 using kernel sub-blocks indexed by $S$. Writing $K_{:,S}\in\R^{N\times k}$ for the block of columns indexed by $S$,
 $K_{S,:}\in\R^{k\times N}$ for the corresponding block of rows, and $K_{S,S}\in\R^{k\times k}$
 for the principal submatrix, the Nyström approximation is
-\begin{equation}
-\label{eq:nystrom}
-\hat K(S) \;=\; K_{:,S}\,K_{S,S}^{\dagger}\,K_{S,:},
-\end{equation}
+\begin{equation*}
+\hat K(S) \;=\; (K_{:,S}\,K_{S,S}^{\dagger}\,K_{S,:}), 
+\end{equation*}
 where $(\cdot)^\dagger$ denotes the Moore--Penrose pseudoinverse. This expression follows the classical Nyström
 construction for kernel matrices \cite{williams2001nystrom} and is analyzed in modern randomized numerical linear
 algebra treatments \cite{gittens2016nystrom}. The quality of $\hat K(S)$ depends strongly on the choice of landmarks,
@@ -429,25 +406,18 @@ distribution by $W_g := \sum_{i\in I_g} w_i$, $W := \sum_{i=1}^N w_i$, and $\pi_
 For a subset $S$, let us define the selected totals $W_g(S) := \sum_{i\in S\cap I_g} w_i$ and $W(S) := \sum_{i\in S} w_i$.
 To ensure that divergence-based composition diagnostics remain finite even when some groups receive no selected mass,
 we use additive smoothing with pseudo-count $\alpha>0$ and define the smoothed subset distribution
-\begin{equation}
-\label{eq:smooth_weight_hist}
+\begin{equation*}
 \hat\pi_g^{(w,\alpha)}(S)
 =
 \frac{W_g(S)+\alpha}{W(S)+\alpha G}.
-\end{equation}
+\end{equation*}
 We then quantify proportionality through the forward KL divergence
-\begin{equation}
-\label{eq:kl_constraint_generic}
+\begin{equation*}
 D^{(w)}(S)
 :=
 \KL\!\big(\pi^{(w)} \,\big\|\, \hat\pi^{(w,\alpha)}(S)\big),
-\end{equation}
-and impose the feasibility requirement
-\begin{equation}
-\label{eq:kl_ineq_generic}
-D^{(w)}(S) \le \tau,
-\end{equation}
-for a user-specified tolerance $\tau\ge 0$. KL divergence is a standard way to measure discrepancy between discrete
+\end{equation*}
+and impose the feasibility requirement $D^{(w)}(S) \le \tau$, for a user-specified tolerance $\tau\ge 0$. KL divergence is a standard way to measure discrepancy between discrete
 probability vectors and appears throughout modern statistical learning and transport-based formulations; we adopt the
 convention and notation common in optimal-transport and related references \cite{villani2009ot,peyre2019ot}.
 
@@ -521,11 +491,7 @@ objectives in \eqref{eq:mmd_def_prelim}--\eqref{eq:sd_def_prelim}.
 
 This section specifies the end-to-end workflow for selecting exactly $k$ Nyström landmarks
 under proportionality constraints.
-The default selection problem is a constrained bi-objective minimization with objective vector
-\begin{equation*}
-\big(f_{\mathrm{MMD}}(S),\, f_{\mathrm{SD}}(S)\big).
-\end{equation*}
-A third objective based on symmetric KL drift in VAE space is evaluated only as an ablation.
+The default selection problem is a constrained bi-objective minimization with objective vector $\big(f_{\mathrm{MMD}}(S),\, f_{\mathrm{SD}}(S)\big)$. A third objective based on symmetric KL drift in VAE space is evaluated only as an ablation.
 
 The workflow has four stages:
 (i) construct a representation $\psi$ and compute $\{r_i\}$,
@@ -555,8 +521,6 @@ Feasibility is handled as a constraint rather than a penalty: candidate subsets 
 
 \subsection{Scalable Objective Evaluation}
 
-\subsubsection{MMD via Random Fourier Features}
-
 The MMD objective in \eqref{eq:mmd_def_prelim} is computed with a radial basis function (RBF) kernel in the chosen
 representation.
 Inside NSGA-II, we approximate it using RFF.
@@ -565,27 +529,23 @@ mean feature embeddings of the full data and the subset as
 $\bar\Phi_N := \frac{1}{N}\sum_{i=1}^N \Phi(r_i)$ and $\bar\Phi_S := \frac{1}{k}\sum_{i\in S} \Phi(r_i)$,
 respectively.
 The optimized surrogate is
-\begin{equation}
-\label{eq:mmd_rff}
+\begin{equation*}
 f_{\mathrm{MMD}}(S)
 \approx
 \|\bar\Phi_S-\bar\Phi_N\|_2^2.
-\end{equation}
+\end{equation*}
 We cache $\Phi(r_i)$ and $\bar\Phi_N$ so that each evaluation costs $O(km)$.
-
-\subsubsection{Sinkhorn Divergence via Anchors}
 
 The debiased SD in \eqref{eq:sd_def_prelim} is more expensive to evaluate
 against $P_N$ inside an evolutionary loop.
 We therefore approximate $P_N$ by a fixed anchor measure
 $\tilde P_A := \frac{1}{A}\sum_{j=1}^{A}\delta_{r_{a_j}}$, where $\{a_1,\dots,a_A\}\subset\{1,\dots,N\}$ is a
 representative subsample of size $A$ constructed once per run, and optimize
-\begin{equation}
-\label{eq:sd_anchor}
+\begin{equation*}
 f_{\mathrm{SD}}(S)
 \approx
 \SD_{\varepsilon}(\tilde P_A,Q_S).
-\end{equation}
+\end{equation*}
 Anchor self-costs are cached and each candidate evaluation is performed with a log-stabilized
 Sinkhorn routine under a fixed iteration cap.
 
@@ -626,24 +586,22 @@ This is useful when one wants the group histogram to be invariant at fixed $k$.
 \subsection{Constrained Pareto Formulation and Search}
 
 The default constrained bi-objective problem is
-\begin{equation}
-\label{eq:problem_bi}
+\begin{equation*}
 \begin{aligned}
-&\min_{S\subseteq\{1,\dots,N\}}
+&\qquad \min_{S\subseteq\{1,\dots,N\}}
 \begin{bmatrix}
 f_{\mathrm{MMD}}(S)\\
 f_{\mathrm{SD}}(S)
-\end{bmatrix}\\
-&\text{s.t.}\\
-&|S|=k,\\
-&\ell_g \le c_g(S) \le n_g,
+\end{bmatrix}\\[1ex]
+&\text{s.t.} \qquad |S|=k,\\
+&\mspace{60mu} \ell_g \le c_g(S) \le n_g,
 \quad
 g=1,\dots,G,\\
-&D^{(w^{(h)})}(S)\le \tau_h,
+&\mspace{60mu} D^{(w^{(h)})}(S)\le \tau_h,
 \quad
 h\in\mathcal{H}.
 \end{aligned}
-\end{equation}
+\end{equation*}
 
 We approximate feasible trade-offs with NSGA-II under fixed computational effort
 (population size and number of generations are user-controlled).
@@ -702,7 +660,7 @@ first, it reduces the count-based problem to an integer allocation over group co
 second, it motivates the direction used by repair (which groups are currently too large or too small under the active
 weighting), and it enables efficient incremental feasibility updates under swaps.
 
-\subsection{Smoothed KL Proportionality as a Log-Sum Criterion}
+\subsection{KL Proportionality via Log-Sum}
 \label{subsec:quota_path}
 
 The proportionality constraints compare a fixed target distribution $\pi$ to the smoothed subset distribution
@@ -735,10 +693,10 @@ Moreover, $\KL(\pi\|\hat\pi^{(w,\alpha)}(S))=0$ holds if and only if
 \begin{equation}
 \label{eq:smoothed_proportionality_alg}
 \begin{aligned}
-&W_g(S)+\alpha=\pi_g\,\big(W(S)+\alpha G\big),\\
-&g=1,\dots,G.
+&W_g(S)+\alpha=\pi_g\,\big(W(S)+\alpha G\big),
 \end{aligned}
 \end{equation}
+where $g=1,\dots,G$.
 \end{lemma}
 
 \begin{IEEEproof}
@@ -765,7 +723,7 @@ In practice, Lemma~\ref{thm:kl_feasibility} implies that one can maintain $W_g(S
 the log-sum $\sum_g \pi_g \log(W_g(S)+\alpha)$) and update them under a single swap by touching only the donor and
 recipient groups. This is the mechanism exploited by the repair operator inside the evolutionary loop.
 
-\subsection{Count-Based Proportionality: KL-Optimal Integer Quotas and Floors}
+\subsection{KL-Optimal Integer Quotas and Floors}
 
 When $w_i\equiv 1$ (municipality-share proportionality), $W(S)=k$ and $W_g(S)=c_g(S)$ are integers, so the constraint
 depends on $S$ only through the group count vector $c(S)$. In this case it is natural to decouple the problem into
@@ -951,7 +909,7 @@ Quotas $\{c^\star(k)\}_{k\in\mathcal{K}}$; floors $\{\KL_{\min}(k)\}_{k\in\mathc
 \end{algorithmic}
 \end{algorithm}
 
-\subsection{Swap-Based Repair for General Weighted Constraints}
+\subsection{Swap-Based Constraint Repair}
 \label{subsec:repair_streamlined}
 
 For weighted proportionality, two subsets with identical group counts can have different feasibility because the constraint depends on weighted totals $W_g(S)$.
@@ -1001,7 +959,7 @@ Repaired subset $\tilde S$ with $|\tilde S|=k$
 \end{algorithmic}
 \end{algorithm}
 
-\subsection{Constrained NSGA-II for Feasible Pareto Discovery}
+\subsection{Constrained NSGA-II Pareto Search}
 \label{subsec:nsga_loop}
 
 Algorithm~\ref{alg:nsga} describes the constrained NSGA-II loop. Variation operators preserve $|S|=k$ and group bounds. Feasibility is handled by constraint-domination: feasible candidates ($V(S)=0$) rank ahead of infeasible ones, with smaller violation preferred among infeasible candidates. Algorithm~\ref{alg:repair} is applied after crossover and mutation when weighted constraints are active; in count-based quota mode, proportionality is guaranteed by construction.
@@ -1067,7 +1025,7 @@ This section presents the preprocessing pipeline, representation learning proced
 % -------------------- Core settings (inline) ---------------------
 All experiments use $N=\datasetN$ municipalities partitioned into $G=27$ states, with mixed-type covariates processed through a type-aware pipeline (type inference, type-specific imputation, optional $\log(1{+}x)$ transforms, standardization, stable integer encoding for categoricals, and explicit missingness indicators). Optimization operates in three representation spaces: processed raw ($p=D$), PCA ($p=\latentDim$), and VAE mean ($p=\latentDim$), with landmark cardinalities $k\in\kGrid$. All runs enforce exact-$k$ selection and per-state bounds (minimum one municipality per state). Proportionality is controlled via smoothed forward KL with Laplace pseudo-count $\alpha=1$ and population-share tolerance $\tau_{\mathrm{pop}}=0.02$. NSGA-II uses a default population size of $\popSize$ and $\nGen$ generations, with feasibility repair (up to 200 swaps). Proxy objectives are RFF-MMD ($m=2{,}000$ features) and anchor Sinkhorn (200 anchors, 100 iterations, $\varepsilon=0.05\cdot\mathrm{median}(\|r_i-r_j\|^2)$). Evaluation uses a fixed stratified subset $|E|=2{,}000$ with an 80/20 train/test split, an RBF kernel with median-heuristic bandwidth, and downstream tasks spanning multi-target KRR, multi-model regression/classification benchmarks, and QoS/GSI modules when available.
 
-\subsection{Dataset Snapshot and Mixed-Type Preprocessing}
+\subsection{Dataset and Mixed-Type Preprocessing}
 
 Each entity is a Brazilian municipality indexed by a state label and described by a covariate table formed by merging telecom coverage and infrastructure releases with municipality-level metadata \cite{anatelEstacoesLicenciadasSMP,anatelCoberturaMovel,ibgeLocalidades,ibgePopEst2025}. After preprocessing, the dataset contains $N=\datasetN$ municipalities partitioned into $G=27$ states. The covariates are treated as intrinsically mixed-type, comprising continuous engineering indicators, ordinal or binned variables, and categorical descriptors.
 
@@ -1085,12 +1043,12 @@ so that $r_i=\psi(x_i)=x_i$ and $p=D$. In the PCA setting, $\psi(x)=U^\top x$, w
 components fitted on the stratified training split. In the VAE setting, $\psi(x)=\mu_\theta(x)$, where $\mu_\theta(\cdot)$ denotes the
 encoder mean of a tabular variational autoencoder trained on the same training split with early stopping, again with $p=\latentDim$.
 Unless stated otherwise, landmark selection is carried out in the VAE-mean representation and all candidates are evaluated in processed raw
-space so that scorecards remain directly comparable across runs.
+space so that evaluation results remain directly comparable across runs.
 
 For dimension-sweep experiments (R13, R14), an efficient cache-seeding strategy avoids redundant preprocessing. A base cache containing the full preprocessing pipeline, data splits, and default-dimension representations is copied to a dimension-specific directory; the representation arrays are then stripped and only the new VAE or PCA model at the target dimensionality is retrained. This reuses the expensive preprocessing and split computation while ensuring each dimension variant receives a freshly trained representation. Shape validation confirms that cached representations match the requested dimensionality before reuse.
 
 
-\subsection{Cardinalities, Bounds, and Proportionality Regimes}
+\subsection{Proportionality Regimes and Bounds}
 
 The primary cardinality grid is $k\in\kGrid$, spanning small to large representative cardinalities.
 All runs enforce exact cardinality and per-state bounds, i.e., $|S|=k$, $1 \le c_g(S)\le n_g$, $g=1,\dots,G$,
@@ -1171,7 +1129,7 @@ ID & $k$ & Opt.\ space & Constraints & Objectives & Reps & Purpose \\
 % R0  & $\mathcal{K}$ & --- & municipality-share quota planning & --- & 1 &
 % Compute $c^\star(k)$ and $\KL_{\min}(k)$ vs.\ $k$. \\
 R1  & $\mathcal{K}$ & VAE mean & population-share & MMD, Sinkhorn & 5 &
-Primary cardinality sweep with full scorecard. \\
+Primary cardinality sweep with full evaluation suite. \\
 R2  & 300 & VAE mean & population-share & MMD only & 1 &
 Objective ablation (distribution matching only). \\
 R3  & 300 & VAE mean & population-share & Sinkhorn only & 1 &
@@ -1224,7 +1182,7 @@ attainable trade-off surface and the location of distinguished solutions.
 Where runs are replicated across seeds (notably R1 and R10), we additionally report
 stability diagnostics across the 5 seeds.
 
-\subsection{Feasibility Planning: Integrality Floors and Quota Paths (R0)}
+\subsection{Integrality Floors and Quota Paths (R0)}
 The count-based proportionality case ($w\equiv 1$) is subject to integrality effects under exact-$k$ and per-state
 capacities. Run R0 operationalizes the feasibility analysis introduced in Section~\ref{sec:algorithms} by computing the
 KL-optimal integer quota $c^\star(k)$ for each cardinality and the corresponding best-achievable floor $\KL_{\min}(k)$.
@@ -1247,7 +1205,7 @@ capacities across the landmark-cardinality grid.}
 \label{fig:kl_floor_vs_k}
 \end{figure}
 
-\subsection{Proportionality Treated as Feasibility Constraint (R6)}
+\subsection{Proportionality as Feasibility (R6)}
 Run R6 isolates the core failure mode motivating this work by removing proportionality constraints while keeping
 exact-$k$ selection and hard per-state bounds. In this setting, a selector can achieve favorable operator-fidelity metrics
 while substantially shifting the state composition of the selected set, which destabilizes state-conditioned KPIs,
@@ -1270,7 +1228,7 @@ Operator fidelity alone does not guarantee composition validity.}
 \label{fig:geo_ablation}
 \end{figure}
 
-\subsection{Cardinality Scaling under Population-Share Proportionality (R1)}
+\subsection{Population-Share Scaling (R1)}
 Figure~\ref{fig:distortion_cardinality} summarizes the primary cardinality sweep (R1), which optimizes in VAE mean space under
 population-share proportionality and evaluates all metrics in processed raw space. The plot reports envelopes over
 feasible solutions returned at each $k$, enabling two complementary readings:
@@ -1322,10 +1280,9 @@ $k$ & $e_{\mathrm{Nys}}$ & $e_{\mathrm{kPCA}}$ & 4G & 5G & 4G & 5G \\
 \end{table}
 }
 
-\paragraph*{Multi-seed robustness (R1 and R10).}
-Because R1 and R10 are replicated across 5 seeds, we additionally report stability diagnostics for the $k=300$ knee
-solution. Table~\ref{tab:multi-seed-stats} provides mean/std/min/max summaries across seeds; a supplementary boxplot visualizes the full distribution. These results support claims that the discovered
-trade-offs are not an artefact of a single random initialization or evaluation split. R10 replication further tests
+Because R1 and R10 are each replicated across 5 seeds, we additionally report multi-seed stability diagnostics for the $k=300$ knee
+solution. Table~\ref{tab:multi-seed-stats} provides mean/std/min/max summaries across seeds; a supplementary boxplot visualises the full distribution. These results support claims that the discovered
+trade-offs are not an artefact of a single random initialisation or evaluation split. R10 replication further tests
 whether baseline rankings are stable across seeds and cardinalities.
 
 \IfFileExists{generated/tables/multi_seed_statistics.tex}{%
@@ -1347,17 +1304,14 @@ R10 & --- & --- & --- & --- & --- \\
 \end{table}
 }
 
-\subsection{Downstream Utility and State-Conditioned Robustness}
+\subsection{Downstream Utility and Robustness}
 Downstream evaluation is intentionally broader than a single supervised model family. We report (i) multi-target KRR on
 coverage outcomes (primary workload) and (ii) transfer to additional regression/classification benchmarks trained on the
 same Nyström features. We also report state-conditioned robustness metrics because the consumer interface is
 state-conditioned.
 
-\paragraph*{Coverage KRR cardinality scaling (R1).}
 Worst-state KRR RMSE and state-level dispersion are included in Table~\ref{tab:r1-by-k}; they confirm that geographic equity in predictive accuracy improves with cardinality, and that state-conditioned error bounds tighten as more landmarks become available.
-
-\paragraph*{Target-wise coverage performance at $k=300$.}
-Table~\ref{tab:krr-multitask-k300} reports target-wise RMSE for the representative R1 solution at $k=300$, reflecting the
+Table~\ref{tab:krr-multitask-k300} further reports target-wise RMSE for the representative R1 solution at $k=300$, reflecting the
 multi-target nature of the primary supervised workload and enabling per-target discussion (e.g., which coverage outcomes
 are most sensitive to landmark cardinality).
 
@@ -1421,7 +1375,7 @@ classification-only). The vertical divider separates the two metric families.}
 \label{fig:downstream_model_heatmap}
 \end{figure}
 
-\subsection{Objective and Constraint Ablations at Fixed Cardinality (R2--R7)}
+\subsection{Ablations at Fixed Cardinality (R2--R7)}
 Runs R2--R7 separate the roles of objectives and constraints at $k=300$.
 Figure~\ref{fig:objective_ablation_k300} overlays the Pareto fronts obtained under MMD-only (R2), Sinkhorn-only (R3),
 and the default bi-objective regime (R1) in downstream evaluation space ($e_{\mathrm{Nys}}$ vs.\ RMSE$_{4\mathrm{G}}$).
@@ -1459,9 +1413,9 @@ and unconstrained (R6) regimes in downstream metric space. Stars denote knee poi
 \label{fig:constraint_comparison_k300}
 \end{figure}
 
-Finally, R7 adds a latent-drift (SKL) third objective as a sensitivity check. Across all scorecard metrics in processed raw space, the tri-objective variant shows no consistent improvement over the bi-objective default, confirming that SKL does not provide non-redundant selection signal beyond MMD and Sinkhorn divergence.
+Finally, R7 adds a latent-drift (SKL) third objective as a sensitivity check. Across all evaluation metrics in processed raw space, the tri-objective variant shows no consistent improvement over the bi-objective default, confirming that SKL does not provide non-redundant selection signal beyond MMD and Sinkhorn divergence.
 
-\subsection{Baseline Comparisons under Unconstrained and Quota-Matched Regimes (R10)}
+\subsection{Baseline Comparisons (R10)}
 Run R10 benchmarks constrained selection against a baseline suite across all cardinalities in $\kGrid$, each replicated with five seeds matching R1.
 Each baseline is reported in two variants: unconstrained exact-$k$ selection, and quota-matched selection using
 $c^\star(k)$ (from R0). This paired reporting separates the effect of composition control from within-state selection
@@ -1487,9 +1441,9 @@ simultaneously, visualizing the margin by which multi-objective selection outper
 
 % Detailed per-baseline numerics under both unconstrained and quota-matched regimes are provided in the supplementary material.
 
-\subsection{Optimization-Space Transfer and Runtime Decomposition (R8--R9)}
+\subsection{Space Transfer and Runtime (R8--R9)}
 Runs R8 and R9 examine optimization-space transfer by optimizing in raw space and PCA space, respectively, while
-evaluating all candidates in the common processed raw-space scorecard.
+evaluating all candidates under the common processed raw-space evaluation protocol.
 Figure~\ref{fig:repr_transfer} overlays the Pareto fronts from VAE mean (R1), raw (R8), and PCA (R9) optimization in
 shared downstream metric space, revealing how representation choice shifts the achievable trade-off surface.
 Knee points and best-per-metric selections are marked for each front.
@@ -1532,19 +1486,16 @@ PCA     & \latentDim  & --- & --- \\
 
 
 \subsection{Robustness and Diagnostic Studies (R11--R14)}
-\paragraph*{Effort sweep (R12).}
-Run R12 varies NSGA-II effort by sweeping six paired $(P,T)$ configurations---$(20,100)$, $(50,300)$, $(100,500)$, $(150,700)$, $(200,1000)$, and $(300,1500)$---at $k=300$. The effort sweep (detailed in supplementary material) shows that scorecard metrics plateau beyond $(P,T)=(200,1000)$, justifying the default settings; further increasing effort to $(300,1500)$ yields marginal improvements at approximately double the solver runtime.
+Run R12 varies NSGA-II effort by sweeping six paired $(P,T)$ configurations---$(20,100)$, $(50,300)$, $(100,500)$, $(150,700)$, $(200,1000)$, and $(300,1500)$---at $k=300$. The effort sweep (detailed in supplementary material) shows that evaluation metrics plateau beyond $(P,T)=(200,1000)$, justifying the default settings; further increasing effort to $(300,1500)$ yields marginal improvements at approximately double the solver runtime.
 
-\paragraph*{Representation dimensionality (R13--R14).}
-Runs R13 and R14 vary the VAE latent dimension and the PCA dimension over $\{8,16,32,64\}$ at $k=300$.
+Runs R13 and R14 vary the VAE latent dimension and the PCA dimension, respectively, over $\{8,16,32,64\}$ at $k=300$.
 Detailed dimension-sweep results (supplementary material) show that core metrics plateau by $p=32$, with marginal returns and occasional slight degradation at higher dimensionality.
 Each dimension variant reuses the base cache's preprocessing and data splits; only the VAE encoder (R13) or PCA projection (R14) is retrained at the target dimensionality, ensuring that observed differences are attributable to representation capacity rather than to pipeline variation.
 
-\paragraph*{Proxy stability and objective--metric alignment (R11).}
-Run R11 tests whether the scalable proxies used during optimization are stable enough to support consistent search and
+Run R11 tests whether the scalable proxies used during optimisation are stable enough to support consistent search and
 whether objective rankings align with the processed raw-space metrics used for reporting.
-Table~\ref{tab:proxy-stability} summarizes proxy stability via Spearman rank correlations under controlled changes to proxy
-settings and cross-space comparisons. A full objective--metric alignment heatmap is provided in the supplementary material; Spearman correlations between proxy objectives and all primary downstream evaluation metrics confirm that the scalable proxies used during NSGA-II are directionally consistent with the processed raw-space scorecard.
+Table~\ref{tab:proxy-stability} summarises proxy stability via Spearman rank correlations under controlled changes to proxy
+settings and cross-space comparisons. A full objective--metric alignment heatmap is provided in the supplementary material; Spearman correlations between proxy objectives and all primary downstream evaluation metrics confirm that the scalable proxies used during NSGA-II are directionally consistent with the processed raw-space evaluation metrics.
 
 \IfFileExists{generated/tables/proxy_stability.tex}{%
 \input{generated/tables/proxy_stability.tex}%
@@ -1598,7 +1549,7 @@ operators and competitive multi-target KPI prediction.
 Three directions for future work are in order: (i) exploring multiple feasible quotas under relaxed KL
 tolerances rather than fixing a single KL-optimal quota; (ii) prioritizing state-level robustness
 directly (e.g., worst-state predictive error) as a primary objective; and (iii) extending the
-framework to temporal sequences so landmark sets track quarterly reporting snapshots with bounded churn.
+framework to temporal sequences so landmark sets track quarterly reporting cross-sections with bounded churn.
 
 
 
