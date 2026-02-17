@@ -466,10 +466,18 @@ def run_scenario_standalone(
                 print(f"\n[{run_id}] Pre-building caches for replicates{dim_desc}: {all_rep_ids}")
 
             if dim is not None:
-                # Dimension sweep: use ensure_replicate_cache with the
-                # dimension-specific config (avoids prebuild_full_cache's
-                # min-dimension floor which would break D=4/D=8).
+                # Dimension sweep: seed dimension-specific caches from the
+                # base cache (which Phase 1 / prep already built).  This
+                # avoids re-doing data loading, preprocessing, splits, etc.
+                # — only the representation at the new dimension is trained.
+                from ..data.cache import _seed_dim_cache
                 for rep in all_rep_ids:
+                    _seed_dim_cache(
+                        base_cache_dir=cache_dir,
+                        dim_cache_dir=dim_cache_dir,
+                        rep_id=rep,
+                        space_tag=space_tag,
+                    )
                     rep_cfg = replace(
                         dim_base_cfg,
                         rep_id=int(rep),

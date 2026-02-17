@@ -62,6 +62,7 @@ def _acquire_build_lock(lock_path: str, *, timeout_s: float = 6 * 3600, poll_s: 
     # Consider locks older than timeout stale (previously was 2 hours which could
     # break legitimate long-running processes before timeout)
     stale_s = timeout_s
+    warned = False
     while True:
         try:
             fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
@@ -75,10 +76,26 @@ def _acquire_build_lock(lock_path: str, *, timeout_s: float = 6 * 3600, poll_s: 
             try:
                 age = time.time() - os.path.getmtime(lock_path)
                 if age > stale_s:
+                    print(f"[lock] Removing stale lock ({age:.0f}s old): {lock_path}", flush=True)
                     os.remove(lock_path)
                     continue
             except Exception:
                 pass
+
+            if not warned:
+                # Read lock info for diagnostics
+                lock_info = ""
+                try:
+                    with open(lock_path, "r") as f:
+                        lock_info = f" ({f.read().strip()})"
+                except Exception:
+                    pass
+                print(f"[lock] Waiting for cache lock: {lock_path}{lock_info}", flush=True)
+                warned = True
+            elif (time.time() - start) % 60 < poll_s:
+                # Periodic reminder every ~60 seconds
+                elapsed = time.time() - start
+                print(f"[lock] Still waiting ({elapsed:.0f}s elapsed): {lock_path}", flush=True)
 
             if time.time() - start > timeout_s:
                 raise TimeoutError(f"Timed out waiting for cache lock: {lock_path}")

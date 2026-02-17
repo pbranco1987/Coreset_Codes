@@ -549,6 +549,58 @@ def build_replicate_cache(
     return cache_path
 
 
+def _seed_dim_cache(
+    base_cache_dir: str,
+    dim_cache_dir: str,
+    rep_id: int,
+    space_tag: str,
+) -> None:
+    """Copy base cache into a dimension-specific directory, stripping old representation.
+
+    This allows ensure_replicate_cache()'s augmentation logic to train only
+    the VAE/PCA at the new dimension, reusing all preprocessing and splits.
+
+    Parameters
+    ----------
+    base_cache_dir : str
+        Path to base cache directory (e.g. "replicate_cache_seed123")
+    dim_cache_dir : str
+        Path to dimension-specific directory (e.g. "replicate_cache_seed123_vae_d8")
+    rep_id : int
+        Replicate index
+    space_tag : str
+        "vae" or "pca" — determines which representation keys to strip
+    """
+    src = os.path.join(base_cache_dir, f"rep{rep_id:02d}", "assets.npz")
+    dst_dir = os.path.join(dim_cache_dir, f"rep{rep_id:02d}")
+    dst = os.path.join(dst_dir, "assets.npz")
+
+    # Skip if destination already exists (resume-safe)
+    if os.path.exists(dst):
+        return
+
+    if not os.path.exists(src):
+        # Base cache doesn't exist yet — fall back to full build
+        print(f"[cache] rep{rep_id:02d}: Base cache not found at {src}, "
+              f"will build dimension cache from scratch", flush=True)
+        return
+
+    ensure_dir(dst_dir)
+
+    # Load base cache, strip old representation keys
+    data = dict(np.load(src, allow_pickle=True))
+    if space_tag == "vae":
+        data.pop("Z_vae", None)
+        data.pop("Z_logvar", None)
+    elif space_tag == "pca":
+        data.pop("Z_pca", None)
+
+    # Save stripped copy — ensure_replicate_cache will augment with new dim
+    print(f"[cache] rep{rep_id:02d}: Seeding {dim_cache_dir} from base cache "
+          f"(stripped {space_tag} keys)", flush=True)
+    atomic_savez(dst, **data)
+
+
 def ensure_replicate_cache(cfg: ExperimentConfig, rep_id: int) -> str:
     """Ensure a replicate cache exists and includes required representations.
 
