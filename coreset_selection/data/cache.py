@@ -633,6 +633,31 @@ def ensure_replicate_cache(cfg: ExperimentConfig, rep_id: int) -> str:
     # Fast path: cache exists and is valid.
     valid, missing = validate_cache(cache_path, required)
     if valid:
+        # Shape-check: verify representation dimensions match config.
+        # Without this, a cache with Z_vae@D=16 would be silently reused
+        # even when the config requests D=8 (dimension sweep bug).
+        try:
+            with np.load(cache_path, allow_pickle=True) as data:
+                vae_dim = int(getattr(cfg.vae, "latent_dim", 0))
+                if vae_dim > 0 and "Z_vae" in data.files:
+                    actual_d = data["Z_vae"].shape[1]
+                    if actual_d != vae_dim:
+                        print(f"[cache] rep{rep_id:02d}: Z_vae dimension mismatch "
+                              f"(cached={actual_d}, requested={vae_dim}), will retrain",
+                              flush=True)
+                        valid = False
+                pca_dim = int(getattr(cfg.pca, "n_components", 0))
+                if pca_dim > 0 and "Z_pca" in data.files:
+                    actual_d = data["Z_pca"].shape[1]
+                    if actual_d != pca_dim:
+                        print(f"[cache] rep{rep_id:02d}: Z_pca dimension mismatch "
+                              f"(cached={actual_d}, requested={pca_dim}), will retrain",
+                              flush=True)
+                        valid = False
+        except Exception:
+            pass  # Fall through to normal validation below
+
+    if valid:
         print(f"[cache] rep{rep_id:02d}: Reusing existing cache (all representations present)", flush=True)
         return cache_path
 
@@ -642,6 +667,20 @@ def ensure_replicate_cache(cfg: ExperimentConfig, rep_id: int) -> str:
 
         # Re-check after acquiring lock.
         valid, missing = validate_cache(cache_path, required)
+        if valid:
+            # Same shape check as fast path above
+            try:
+                with np.load(cache_path, allow_pickle=True) as data:
+                    vae_dim = int(getattr(cfg.vae, "latent_dim", 0))
+                    if vae_dim > 0 and "Z_vae" in data.files:
+                        if data["Z_vae"].shape[1] != vae_dim:
+                            valid = False
+                    pca_dim = int(getattr(cfg.pca, "n_components", 0))
+                    if pca_dim > 0 and "Z_pca" in data.files:
+                        if data["Z_pca"].shape[1] != pca_dim:
+                            valid = False
+            except Exception:
+                pass
         if valid:
             print(f"[cache] rep{rep_id:02d}: Reusing existing cache (built by another process)", flush=True)
             return cache_path
@@ -685,8 +724,18 @@ def ensure_replicate_cache(cfg: ExperimentConfig, rep_id: int) -> str:
         seed = int(cfg.seed + rep_id)
         augmented = False
 
-        # Add VAE embeddings if required and missing.
-        if int(getattr(cfg.vae, "epochs", 0)) > 0 and ("Z_vae" not in existing or "Z_logvar" not in existing):
+        # Add VAE embeddings if required and missing OR wrong dimension.
+        vae_dim = int(getattr(cfg.vae, "latent_dim", 0))
+        need_vae = (
+            int(getattr(cfg.vae, "epochs", 0)) > 0
+            and (
+                "Z_vae" not in existing
+                or "Z_logvar" not in existing
+                or (vae_dim > 0 and "Z_vae" in existing
+                    and existing["Z_vae"].shape[1] != vae_dim)
+            )
+        )
+        if need_vae:
             import torch
             from ..models.vae import VAETrainer
 
@@ -707,8 +756,17 @@ def ensure_replicate_cache(cfg: ExperimentConfig, rep_id: int) -> str:
             existing["Z_logvar"] = np.asarray(Z_logvar, dtype=np.float32)
             augmented = True
 
-        # Add PCA embeddings if required and missing.
-        if int(getattr(cfg.pca, "n_components", 0)) > 0 and "Z_pca" not in existing:
+        # Add PCA embeddings if required and missing OR wrong dimension.
+        pca_dim = int(getattr(cfg.pca, "n_components", 0))
+        need_pca = (
+            pca_dim > 0
+            and (
+                "Z_pca" not in existing
+                or ("Z_pca" in existing
+                    and existing["Z_pca"].shape[1] != pca_dim)
+            )
+        )
+        if need_pca:
             # Safety guard: verify no target leakage before training on cached data
             if "feature_names" in existing:
                 validate_no_leakage(list(existing["feature_names"]))
