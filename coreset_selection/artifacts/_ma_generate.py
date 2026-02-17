@@ -11,6 +11,7 @@ Manuscript figures (directly referenced via \\includegraphics):
   Fig 6: baseline_comparison_grouped.pdf  — Section VIII.E
   Fig 7: representation_transfer_bars.pdf — Section VIII.G
   Fig 8: objective_metric_alignment_heatmap.pdf — Section VIII.K
+  Fig 9: downstream_model_heatmap.pdf     — Section VIII.C
 
 Manuscript tables (directly referenced via \\label):
   Table I:   exp_settings.tex             (tab:exp-settings)
@@ -64,6 +65,43 @@ class GenerateAllMixin:
                 except Exception:
                     pass
         return None
+
+    def _load_front_metrics(self, run_pattern: Optional[str] = None,
+                            space: Optional[str] = None) -> pd.DataFrame:
+        """Load concatenated front_metrics CSVs (full Pareto front evaluations).
+
+        Parameters
+        ----------
+        run_pattern : str, optional
+            If provided, only load CSVs whose path contains this substring
+            (e.g. ``"R1"``).
+        space : str, optional
+            Representation space filter (e.g. ``"raw"``, ``"vae"``, ``"pca"``).
+            If provided, only loads ``front_metrics_{space}.csv``.
+
+        Returns
+        -------
+        pd.DataFrame
+            Concatenated front metrics with one row per evaluated Pareto
+            solution.  Empty DataFrame if no files found.
+        """
+        pattern = f"front_metrics_{space}.csv" if space else "front_metrics_*.csv"
+        dfs: List[pd.DataFrame] = []
+        for path in glob.glob(
+            os.path.join(self.runs_root, "**", pattern), recursive=True
+        ):
+            if run_pattern and run_pattern not in path:
+                continue
+            try:
+                dfs.append(pd.read_csv(path))
+            except Exception:
+                pass
+        if not dfs:
+            return pd.DataFrame()
+        df = pd.concat(dfs, ignore_index=True)
+        if "k" not in df.columns and "run_id" in df.columns:
+            df["k"] = df["run_id"].astype(str).str.extract(r"_k(\d+)").astype(float)
+        return df
 
     @staticmethod
     def _run_artifact(gen: Dict[str, List[str]], key: str,
@@ -152,6 +190,9 @@ class GenerateAllMixin:
 
         _fig("Fig 8 — Objective-metric alignment heatmap (Sec. VIII.K)",
              lambda: self.fig_objective_metric_alignment(df))
+
+        _fig("Fig 9 — Downstream model heatmap (Sec. VIII.C)",
+             lambda: self.fig_downstream_model_heatmap(df))
 
         # ==============================================================
         # MANUSCRIPT TABLES — directly referenced via \label{tab:...}

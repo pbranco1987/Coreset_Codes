@@ -11,18 +11,20 @@ class TablesMixin:
     """Mixin providing LaTeX/CSV table generation methods."""
 
     def tab_r1_by_k(self, df: pd.DataFrame) -> str:
-        r"""Table III: R1 metric-wise envelope values across k (``\label{tab:r1-by-k}``).
+        r"""Table III: R1 envelope + knee values across k (``\label{tab:r1-by-k}``).
 
-        Per the manuscript (Section VIII.C), this table reports the
-        **metric-wise envelope** (best among feasible non-dominated
-        solutions) for each k in the cardinality grid :math:`\mathcal{K}`.
+        Per the manuscript (Section VIII.C), this table reports, for each k
+        in the cardinality grid :math:`\mathcal{K}`:
+
+        * **Envelope (best)**: metric-wise minimum over the Pareto front.
+        * **Knee**: value at the balanced (knee) solution.
+
+        The gap between the two quantifies the cost of the balanced
+        compromise.  When multiple seeds are present (R1 has 5 seeds),
+        values are averaged across seeds.
 
         Columns (manuscript Table III):
-          k | e_Nys | e_kPCA | RMSE(4G) | RMSE(5G)
-
-        When multiple seeds are present (R1 has 5 seeds), the table
-        reports the **mean** envelope across seeds so that multi-seed
-        variance is fairly represented.
+          k | e_Nys(best) | e_Nys(knee) | RMSE_4G(best) | RMSE_4G(knee) | ...
         """
         d = df[df["run_id"].astype(str).str.contains("R1")].copy()
         if d.empty:
@@ -30,10 +32,10 @@ class TablesMixin:
 
         d["k"] = d["k"].astype(int)
 
-        # Manuscript-canonical column mapping: internal name -> Table III header
+        # Manuscript-canonical column mapping: internal name -> short label
         col_map = {
-            "nystrom_error":      "$e_{\\mathrm{Nys}}$",
-            "kpca_distortion":    "$e_{\\mathrm{kPCA}}$",
+            "nystrom_error":        "$e_{\\mathrm{Nys}}$",
+            "kpca_distortion":      "$e_{\\mathrm{kPCA}}$",
             "krr_rmse_cov_area_4G": "$\\mathrm{RMSE}_{\\mathrm{4G}}$",
             "krr_rmse_cov_area_5G": "$\\mathrm{RMSE}_{\\mathrm{5G}}$",
         }
@@ -65,46 +67,110 @@ class TablesMixin:
                 seed_col = cand
                 break
 
+        # --- Envelope (metric-wise best) ---
         if seed_col is not None and d[seed_col].nunique() > 1:
-            # Multi-seed: compute per-seed envelope, then mean across seeds
             per_seed_env = d.groupby(["k", seed_col])[metrics].min().reset_index()
             env = per_seed_env.groupby("k")[metrics].mean().reset_index()
         else:
-            # Single seed / unknown: simple envelope
             env = d.groupby("k")[metrics].min().reset_index()
-
         env = env.sort_values("k")
 
-        # Collect human-readable headers
-        headers = [resolved_cols[m] for m in metrics]
+        # --- Knee-point values ---
+        has_rep_name = "rep_name" in d.columns
+        if has_rep_name:
+            d_knee = d[d["rep_name"].astype(str) == "knee"]
+        else:
+            d_knee = pd.DataFrame()
 
-        # --- LaTeX ---
-        ncols = len(metrics)
+        if not d_knee.empty:
+            if seed_col is not None and d_knee[seed_col].nunique() > 1:
+                knee_agg = d_knee.groupby("k")[metrics].mean().reset_index()
+            else:
+                knee_agg = d_knee.groupby("k")[metrics].mean().reset_index()
+        else:
+            # Fallback: knee unavailable, repeat envelope values
+            knee_agg = env.copy()
+
+        knee_agg = knee_agg.sort_values("k")
+        # Align k values with envelope
+        knee_dict = {}
+        for _, row in knee_agg.iterrows():
+            knee_dict[int(row["k"])] = row
+
+        # --- LaTeX (paired best/knee columns per metric) ---
+        # Column spec: k | best_m1 | knee_m1 | best_m2 | knee_m2 | ...
+        ncols = len(metrics) * 2
+        headers_row = "$k$"
+        subheaders_row = ""
+        col_spec = "c"  # for k
+        for m in metrics:
+            short = resolved_cols[m]
+            headers_row += f" & \\multicolumn{{2}}{{c}}{{{short}}}"
+            subheaders_row += " & best & knee"
+            col_spec += " cc"
+
         lines = [
             r"\begin{table}[htbp]",
             r"\centering",
-            r"\caption{R1 metric-wise envelope across coreset sizes $k$.}",
+            r"\caption{R1 envelope (best) and knee-point values across coreset "
+            r"sizes $k$. The gap quantifies the cost of the balanced compromise.}",
             r"\label{tab:r1-by-k}",
-            r"\begin{tabular}{c " + " ".join(["c"] * ncols) + "}",
+            r"\begin{tabular}{" + col_spec + "}",
             r"\toprule",
-            "$k$ & " + " & ".join(headers) + r" \\",
-            r"\midrule",
+            headers_row + r" \\",
+            r"\cmidrule(lr){2-3}" if len(metrics) >= 1 else "",
         ]
+        # Add cmidrule for each metric pair
+        cmidrules = []
+        for i in range(len(metrics)):
+            start = 2 + i * 2
+            end = start + 1
+            cmidrules.append(f"\\cmidrule(lr){{{start}-{end}}}")
+        lines[-1] = " ".join(cmidrules)
+        lines.append(subheaders_row.lstrip(" &") if not subheaders_row.startswith(" &") else
+                      "& " + subheaders_row.lstrip(" & ") if subheaders_row.strip() else "")
+        # Fix subheader row: prepend empty cell for k column
+        lines[-1] = " " + subheaders_row + r" \\"
+
+        lines.append(r"\midrule")
+
         for _, row in env.iterrows():
-            vals = " & ".join([f"{row[m]:.4f}" for m in metrics])
-            lines.append(f"{int(row['k'])} & {vals}" + r" \\")
+            k_val = int(row["k"])
+            knee_row = knee_dict.get(k_val, None)
+            vals_parts = []
+            for m in metrics:
+                best_val = f"{row[m]:.4f}"
+                if knee_row is not None and m in knee_row.index and np.isfinite(knee_row[m]):
+                    knee_val = f"{knee_row[m]:.4f}"
+                else:
+                    knee_val = "---"
+                vals_parts.append(f"{best_val} & {knee_val}")
+            lines.append(f"{k_val} & " + " & ".join(vals_parts) + r" \\")
+
         lines.extend([r"\bottomrule", r"\end{tabular}", r"\end{table}"])
 
         path = os.path.join(self.tab_dir, "r1_by_k.tex")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "w") as f:
             f.write("\n".join(lines))
 
-        # Companion CSV (plain-text headers)
-        csv_env = env.copy()
-        csv_env.columns = ["k"] + [c.replace("_", " ") for c in metrics] \
-            if "k" in csv_env.columns else csv_env.columns
+        # Companion CSV
+        csv_rows = []
+        for _, row in env.iterrows():
+            k_val = int(row["k"])
+            knee_row = knee_dict.get(k_val, None)
+            csv_row = {"k": k_val}
+            for m in metrics:
+                m_label = m.replace("_", " ")
+                csv_row[f"{m_label} (best)"] = row[m]
+                if knee_row is not None and m in knee_row.index:
+                    csv_row[f"{m_label} (knee)"] = knee_row[m]
+                else:
+                    csv_row[f"{m_label} (knee)"] = np.nan
+            csv_rows.append(csv_row)
+        csv_df = pd.DataFrame(csv_rows)
         csv_path = os.path.join(self.tab_dir, "r1_by_k.csv")
-        env.to_csv(csv_path, index=False, float_format="%.6f")
+        csv_df.to_csv(csv_path, index=False, float_format="%.6f")
 
         return path
 

@@ -3,9 +3,12 @@
 Manuscript figures rendered here (R/ggplot2 with matplotlib fallback):
   Fig 2: fig_geo_ablation_scatter       → geo_ablation_tradeoff_scatter.pdf
   Fig 5: fig_regional_validity_k300     → regional_validity_k300.pdf
-  Fig 6: fig_baseline_comparison        → baseline_comparison_grouped.pdf
-  Fig 7: fig_representation_transfer    → representation_transfer_bars.pdf
+  Fig 5b: fig_objective_ablation_bars   → objective_ablation_bars_k300.pdf  (Pareto scatter)
+  Fig 6a: fig_constraint_comparison     → constraint_comparison_bars_k300.pdf (Pareto scatter)
+  Fig 6b: fig_baseline_comparison       → baseline_comparison_grouped.pdf   (Pareto scatter + baselines)
+  Fig 7: fig_representation_transfer    → representation_transfer_bars.pdf  (Pareto scatter)
   Fig 8: fig_objective_metric_alignment → objective_metric_alignment_heatmap.pdf
+  Fig 9: fig_downstream_model_heatmap   → downstream_model_heatmap.pdf
 """
 from __future__ import annotations
 import glob
@@ -377,403 +380,279 @@ class ComparisonFigsMixin:
     # Fig N3: Objective ablation bars (complementary, matplotlib only)
     # ------------------------------------------------------------------
     def fig_objective_ablation_bars(self, df: pd.DataFrame) -> str:
-        r"""Fig N3: Objective ablation comparison — R1 vs R2 vs R3 at k=300."""
+        r"""Fig 5: Objective ablation — Pareto fronts for R1/R2/R3 at k=300.
+
+        Replaces the former grouped bar chart with overlaid Pareto front
+        scatters in downstream metric space (e_Nys vs RMSE_4G).
+        """
         import matplotlib.pyplot as plt
+        from ._ma_helpers import plot_pareto_scatter, get_knee_values
 
-        d = df[df["k"].fillna(300).astype(int) == 300].copy()
-        _aliases = {
-            "krr_rmse_4G": ["krr_rmse_cov_area_4G", "krr_rmse_area_4G"],
-            "krr_rmse_5G": ["krr_rmse_cov_area_5G", "krr_rmse_area_5G"],
-        }
-        for canon, aliases in _aliases.items():
-            if canon not in d.columns:
-                for alias in aliases:
-                    if alias in d.columns:
-                        d[canon] = d[alias]; break
+        out_path = os.path.join(self.fig_dir, "objective_ablation_bars_k300.pdf")
 
-        metric_candidates = [
-            ("nystrom_error",    r"$e_{\rm Nys}$"),
-            ("kpca_distortion",  r"$e_{\rm kPCA}$"),
-            ("krr_rmse_4G",      r"RMSE$_{\rm 4G}$"),
-            ("krr_rmse_5G",      r"RMSE$_{\rm 5G}$"),
-            ("geo_kl",           r"KL$_{\rm geo}$"),
+        run_configs = [
+            ("R1 (MMD+SD)", "R1", "#1f77b4"),
+            ("R2 (MMD only)", "R2", "#ff7f0e"),
+            ("R3 (SD only)", "R3", "#2ca02c"),
         ]
-        metrics = [(m, lab) for m, lab in metric_candidates if m in d.columns]
-        if not metrics:
-            fig, ax = plt.subplots()
-            ax.text(0.5, 0.5, "No evaluation metrics available for ablation.",
+
+        # Load front metrics for each run
+        front_dfs = {}
+        colors = {}
+        knee_vals = {}
+        has_data = False
+        for label, rid, color in run_configs:
+            fdf = self._load_front_metrics(run_pattern=rid, space="raw")
+            if fdf.empty:
+                # Fallback: use all_results.csv rows
+                fdf = df[(df["run_id"].astype(str).str.contains(rid))
+                         & (df["k"].fillna(300).astype(int) == 300)].copy()
+            else:
+                fdf = fdf[fdf["k"].fillna(300).astype(int) == 300].copy()
+            if not fdf.empty:
+                front_dfs[label] = fdf
+                colors[label] = color
+                knee_vals[label] = get_knee_values(df, rid, k=300)
+                has_data = True
+
+        if not has_data:
+            fig, ax = plt.subplots(figsize=(5.5, 4.5))
+            ax.text(0.5, 0.5, "No R1/R2/R3 Pareto front data at k=300.",
                     ha="center", va="center", transform=ax.transAxes, fontsize=9)
             ax.set_axis_off()
-            return _save(fig, os.path.join(self.fig_dir, "objective_ablation_bars_k300.pdf"))
+            return _save(fig, out_path)
 
-        runs = {"R1 (MMD+SD)": ("R1", "#1f77b4"), "R2 (MMD only)": ("R2", "#ff7f0e"),
-                "R3 (SD only)": ("R3", "#2ca02c")}
-        bar_data = {}
-        for label, (rid, _) in runs.items():
-            sub = d[d["run_id"].astype(str).str.contains(rid)]
-            if sub.empty: continue
-            bar_data[label] = {m: float(sub[m].min()) for m, _ in metrics
-                                if m in sub.columns and sub[m].notna().any()}
-        if not bar_data:
-            fig, ax = plt.subplots()
-            ax.text(0.5, 0.5, "No R1/R2/R3 data at k=300.",
-                    ha="center", va="center", transform=ax.transAxes, fontsize=9)
-            ax.set_axis_off()
-            return _save(fig, os.path.join(self.fig_dir, "objective_ablation_bars_k300.pdf"))
-
-        metric_keys = [m for m, _ in metrics]
-        metric_labels = [lab for _, lab in metrics]
-        method_labels = list(bar_data.keys())
-        method_colors = [runs[m][1] for m in method_labels]
-        n_metrics = len(metric_keys); n_methods = len(method_labels)
-        x = np.arange(n_metrics); total_width = 0.75; width = total_width / max(n_methods, 1)
-        fig, ax = plt.subplots(figsize=(max(7, n_metrics * 1.5), 4.2))
-        for i, (method, color) in enumerate(zip(method_labels, method_colors)):
-            vals = [bar_data[method].get(m, 0) for m in metric_keys]
-            offset = (i - (n_methods - 1) / 2) * width
-            bars = ax.bar(x + offset, vals, width=width * 0.9, color=color,
-                          alpha=0.85, label=method, edgecolor="white", linewidth=0.5)
-            for bar, v in zip(bars, vals):
-                if v > 0:
-                    ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height(),
-                            f"{v:.4f}", ha="center", va="bottom", fontsize=6.5, rotation=45)
-        ax.set_xticks(x); ax.set_xticklabels(metric_labels, fontsize=9)
-        ax.set_ylabel("Metric value (lower is better)", fontsize=10)
-        ax.set_title("Objective ablation at $k{=}300$", fontsize=10, pad=6)
-        ax.legend(fontsize=8, loc="upper right", framealpha=0.9, edgecolor="0.8")
-        ax.grid(True, alpha=0.2, axis="y"); ax.tick_params(labelsize=9)
+        fig, ax = plt.subplots(figsize=(5.5, 4.5))
+        plot_pareto_scatter(
+            ax, front_dfs, colors,
+            x_metric="nystrom_error", y_metric="krr_rmse_4G",
+            knee_values=knee_vals,
+            title="Objective ablation at $k{=}300$",
+        )
+        ax.legend(fontsize=7, loc="upper right", framealpha=0.9,
+                  edgecolor="0.8", handletextpad=0.4, ncol=1)
         fig.tight_layout()
-        return _save(fig, os.path.join(self.fig_dir, "objective_ablation_bars_k300.pdf"))
+        return _save(fig, out_path)
 
     # ------------------------------------------------------------------
     # Fig N4: Constraint comparison bars (complementary, matplotlib only)
     # ------------------------------------------------------------------
     def fig_constraint_comparison(self, df: pd.DataFrame) -> str:
-        r"""Fig N4: Constraint regime comparison — R1, R4, R5, R6 at k=300."""
+        r"""Fig 6: Constraint regime comparison — Pareto fronts for R1/R4/R5/R6 at k=300.
+
+        Replaces the former grouped bar chart with overlaid Pareto front
+        scatters in downstream metric space (e_Nys vs RMSE_4G).
+        """
         import matplotlib.pyplot as plt
+        from ._ma_helpers import plot_pareto_scatter, get_knee_values
 
-        d = df[df["k"].fillna(300).astype(int) == 300].copy()
-        _aliases = {"krr_rmse_4G": ["krr_rmse_cov_area_4G", "krr_rmse_area_4G"]}
-        for canon, aliases in _aliases.items():
-            if canon not in d.columns:
-                for alias in aliases:
-                    if alias in d.columns:
-                        d[canon] = d[alias]; break
+        out_path = os.path.join(self.fig_dir, "constraint_comparison_bars_k300.pdf")
 
-        metric_defs = [
-            ("geo_kl", r"KL$_{\rm geo}$", "lower"), ("geo_l1", r"$\ell_1$ drift", "lower"),
-            ("nystrom_error", r"$e_{\rm Nys}$", "lower"), ("krr_rmse_4G", r"RMSE$_{\rm 4G}$", "lower"),
+        run_configs = [
+            ("R1 (pop-share)", "R1", "#1f77b4"),
+            ("R4 (muni-quota)", "R4", "#ff7f0e"),
+            ("R5 (joint)", "R5", "#2ca02c"),
+            ("R6 (none)", "R6", "#d62728"),
         ]
-        available_metrics = [(m, lab, d2) for m, lab, d2 in metric_defs if m in d.columns]
-        runs = {"R1\n(pop-share)": ("R1", "#1f77b4"), "R4\n(muni-quota)": ("R4", "#ff7f0e"),
-                "R5\n(joint)": ("R5", "#2ca02c"), "R6\n(none)": ("R6", "#d62728")}
-        bar_data = {}
-        for label, (rid, _) in runs.items():
-            sub = d[d["run_id"].astype(str).str.contains(rid)]
-            if not sub.empty:
-                bar_data[label] = {m: float(sub[m].mean()) for m, _, _ in available_metrics
-                                   if m in sub.columns and sub[m].notna().any()}
-        if not bar_data or not available_metrics:
-            fig, ax = plt.subplots()
-            ax.text(0.5, 0.5, "No constraint comparison data.",
+
+        # Load front metrics for each run
+        front_dfs = {}
+        colors = {}
+        knee_vals = {}
+        has_data = False
+        for label, rid, color in run_configs:
+            fdf = self._load_front_metrics(run_pattern=rid, space="raw")
+            if fdf.empty:
+                # Fallback: use all_results.csv rows
+                fdf = df[(df["run_id"].astype(str).str.contains(rid))
+                         & (df["k"].fillna(300).astype(int) == 300)].copy()
+            else:
+                fdf = fdf[fdf["k"].fillna(300).astype(int) == 300].copy()
+            if not fdf.empty:
+                front_dfs[label] = fdf
+                colors[label] = color
+                knee_vals[label] = get_knee_values(df, rid, k=300)
+                has_data = True
+
+        if not has_data:
+            fig, ax = plt.subplots(figsize=(5.5, 4.5))
+            ax.text(0.5, 0.5, "No R1/R4/R5/R6 Pareto front data at k=300.",
                     ha="center", va="center", transform=ax.transAxes, fontsize=9)
             ax.set_axis_off()
-            return _save(fig, os.path.join(self.fig_dir, "constraint_comparison_bars_k300.pdf"))
+            return _save(fig, out_path)
 
-        n_panels = min(len(available_metrics), 4)
-        nrows = 2 if n_panels > 2 else 1; ncols = 2 if n_panels > 1 else 1
-        fig, axes = plt.subplots(nrows, ncols, figsize=(7, 5.5), squeeze=False)
-        method_labels = list(bar_data.keys())
-        method_colors = [runs[m][1] for m in method_labels]
-        x = np.arange(len(method_labels))
-        for idx, (metric, label, _) in enumerate(available_metrics[:n_panels]):
-            r, c = divmod(idx, ncols); ax = axes[r][c]
-            vals = [bar_data[m].get(metric, 0) for m in method_labels]
-            bars = ax.bar(x, vals, color=method_colors, alpha=0.85, edgecolor="white",
-                          linewidth=0.5, width=0.65)
-            for bar, v in zip(bars, vals):
-                if v > 0:
-                    ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height(),
-                            f"{v:.4f}", ha="center", va="bottom", fontsize=7)
-            ax.set_xticks(x); ax.set_xticklabels(method_labels, fontsize=8)
-            ax.set_title(label, fontsize=9); ax.set_ylabel("Value", fontsize=8)
-            ax.grid(True, alpha=0.2, axis="y"); ax.tick_params(labelsize=8)
-        for idx in range(n_panels, nrows * ncols):
-            r, c = divmod(idx, ncols); axes[r][c].set_visible(False)
-        fig.suptitle("Constraint regime comparison at $k{=}300$", fontsize=11, y=1.01)
+        fig, ax = plt.subplots(figsize=(5.5, 4.5))
+        plot_pareto_scatter(
+            ax, front_dfs, colors,
+            x_metric="nystrom_error", y_metric="krr_rmse_4G",
+            knee_values=knee_vals,
+            title="Constraint regime comparison at $k{=}300$",
+        )
+        ax.legend(fontsize=7, loc="upper right", framealpha=0.9,
+                  edgecolor="0.8", handletextpad=0.4, ncol=1)
         fig.tight_layout()
-        return _save(fig, os.path.join(self.fig_dir, "constraint_comparison_bars_k300.pdf"))
+        return _save(fig, out_path)
 
     # ------------------------------------------------------------------
     # Fig 7: Representation transfer bars (Section VIII.G)
     # ------------------------------------------------------------------
     def fig_representation_transfer(self, df: pd.DataFrame) -> str:
-        r"""Fig 7: Representation transfer bars at k=300 (Section VIII.G)."""
+        r"""Fig 7: Representation transfer — Pareto fronts for R1/R8/R9 at k=300.
+
+        Replaces the former grouped bar chart with overlaid Pareto front
+        scatters in downstream metric space (e_Nys vs RMSE_4G).
+        """
         import matplotlib.pyplot as plt
+        from ._ma_helpers import plot_pareto_scatter, get_knee_values
 
         out_path = os.path.join(self.fig_dir, "representation_transfer_bars.pdf")
 
-        d = df[df["k"].fillna(300).astype(int) == 300].copy()
-        _aliases = {
-            "krr_rmse_4G": ["krr_rmse_cov_area_4G", "krr_rmse_area_4G"],
-            "krr_rmse_5G": ["krr_rmse_cov_area_5G", "krr_rmse_area_5G"],
-        }
-        for canon, aliases in _aliases.items():
-            if canon not in d.columns:
-                for alias in aliases:
-                    if alias in d.columns:
-                        d[canon] = d[alias]; break
-
         run_configs = [
-            ("R1", "Raw (p=D)", "#1f77b4"),
-            ("R8", "PCA (p=20)", "#ff7f0e"),
-            ("R9", "VAE (p=32)", "#2ca02c"),
+            ("R1 (VAE mean)", "R1", "#1f77b4"),
+            ("R8 (raw)", "R8", "#ff7f0e"),
+            ("R9 (PCA)", "R9", "#2ca02c"),
         ]
-        metric_defs = [
-            ("nystrom_error",   "e_Nys",   "(a)"),
-            ("kpca_distortion", "e_kPCA",   "(b)"),
-            ("krr_rmse_4G",     "RMSE_4G",  "(c)"),
-        ]
-        metrics = [(m, lab, pl) for m, lab, pl in metric_defs if m in d.columns]
 
-        if not metrics:
-            fig, ax = plt.subplots(figsize=(7, 4))
-            ax.text(0.5, 0.5, "No evaluation metrics available for R1/R8/R9.",
+        # Load front metrics for each run
+        front_dfs = {}
+        colors = {}
+        knee_vals = {}
+        has_data = False
+        for label, rid, color in run_configs:
+            fdf = self._load_front_metrics(run_pattern=rid, space="raw")
+            if fdf.empty:
+                # Fallback: use all_results.csv rows
+                fdf = df[(df["run_id"].astype(str).str.contains(rid))
+                         & (df["k"].fillna(300).astype(int) == 300)].copy()
+            else:
+                fdf = fdf[fdf["k"].fillna(300).astype(int) == 300].copy()
+            if not fdf.empty:
+                front_dfs[label] = fdf
+                colors[label] = color
+                knee_vals[label] = get_knee_values(df, rid, k=300)
+                has_data = True
+
+        if not has_data:
+            fig, ax = plt.subplots(figsize=(5.5, 4.5))
+            ax.text(0.5, 0.5, "No R1/R8/R9 Pareto front data at k=300.",
                     ha="center", va="center", transform=ax.transAxes, fontsize=9)
             ax.set_axis_off()
             return _save(fig, out_path)
 
-        # Gather data
-        bar_vals = {}
-        for rid, label, color in run_configs:
-            sub = d[d["run_id"].astype(str).str.contains(rid)]
-            if sub.empty: continue
-            vals = {}
-            for mcol, _, _ in metrics:
-                if mcol in sub.columns:
-                    col_vals = sub[mcol].dropna()
-                    if len(col_vals) > 0:
-                        vals[mcol] = (float(col_vals.min()), float(col_vals.mean()),
-                                      float(col_vals.std()))
-            if vals:
-                bar_vals[label] = vals
-
-        if not bar_vals:
-            fig, ax = plt.subplots(figsize=(7, 4))
-            ax.text(0.5, 0.5, "No R1/R8/R9 data at k=300",
-                    ha="center", va="center", transform=ax.transAxes, fontsize=9)
-            ax.set_axis_off()
-            return _save(fig, out_path)
-
-        # ---- Build tidy data for R ----
-        tidy_rows = []
-        for repr_label, metric_dict in bar_vals.items():
-            for mcol, mlabel, _ in metrics:
-                if mcol in metric_dict:
-                    best, mean, std = metric_dict[mcol]
-                    tidy_rows.append({
-                        "representation": repr_label, "metric": mlabel,
-                        "best": best, "mean": mean, "std": std,
-                    })
-
-        tidy_df = pd.DataFrame(tidy_rows)
-
-        # ---- Matplotlib fallback ----
-        def _mpl_fallback():
-            color_map = {label: color for _, label, color in run_configs}
-            run_labels = [label for _, label, _ in run_configs if label in bar_vals]
-            n_m = len(metrics)
-            fig, axes_arr = plt.subplots(1, n_m, figsize=(max(7, 3.5 * n_m), 4.2))
-            if n_m == 1:
-                axes_arr = [axes_arr]
-            for ax, (mcol, ylabel, panel_label) in zip(axes_arr, metrics):
-                mpl_ylabel = ylabel.replace("e_Nys", r"$e_{\mathrm{Nys}}$") \
-                                    .replace("e_kPCA", r"$e_{\mathrm{kPCA}}$") \
-                                    .replace("RMSE_4G", r"RMSE$_{\mathrm{4G}}$")
-                for i, rlabel in enumerate(run_labels):
-                    if mcol not in bar_vals.get(rlabel, {}):
-                        continue
-                    best, mean, std = bar_vals[rlabel][mcol]
-                    color = color_map.get(rlabel, "#999999")
-                    ax.bar(i, best, width=0.55, color=color, alpha=0.75,
-                           edgecolor="k", linewidth=0.5, zorder=4)
-                    if std > 0:
-                        ax.errorbar(i, mean, yerr=std, fmt="none", color="k",
-                                    capsize=4, capthick=1.0, linewidth=1.0, zorder=5)
-                    ax.annotate(f"{best:.4f}", xy=(i, best), xytext=(0, 5),
-                                textcoords="offset points", fontsize=7.5,
-                                ha="center", va="bottom", color="#333333")
-                ax.set_xticks(range(len(run_labels)))
-                ax.set_xticklabels(run_labels, rotation=15, ha="right", fontsize=8)
-                ax.set_ylabel(mpl_ylabel, fontsize=10)
-                ax.grid(True, alpha=0.2, axis="y"); ax.tick_params(labelsize=9)
-                ax.annotate(panel_label, xy=(0.03, 0.95), xycoords="axes fraction",
-                            fontsize=10, fontweight="bold", va="top")
-            fig.suptitle("Representation transfer: raw-space evaluation at $k{=}300$",
-                         fontsize=10, y=1.03)
-            fig.tight_layout()
-            return _save(fig, out_path)
-
-        if tidy_df.empty:
-            return _mpl_fallback()
-
-        return _save_r("fig_representation_transfer.R", tidy_df, out_path,
-                        fallback_fn=_mpl_fallback)
+        fig, ax = plt.subplots(figsize=(5.5, 4.5))
+        plot_pareto_scatter(
+            ax, front_dfs, colors,
+            x_metric="nystrom_error", y_metric="krr_rmse_4G",
+            knee_values=knee_vals,
+            title="Representation transfer at $k{=}300$",
+        )
+        ax.legend(fontsize=7, loc="upper right", framealpha=0.9,
+                  edgecolor="0.8", handletextpad=0.4, ncol=1)
+        fig.tight_layout()
+        return _save(fig, out_path)
 
     # ------------------------------------------------------------------
     # Fig 6: Baseline comparison (Section VIII.E)
     # ------------------------------------------------------------------
     def fig_baseline_comparison(self, df: pd.DataFrame) -> str:
-        r"""Fig 6: Comprehensive baseline comparison at k=300 (Section VIII.E)."""
+        r"""Fig 6: Baseline comparison — R1 Pareto front + baselines at k=300.
+
+        Replaces the former grouped bar chart.  The R1 Pareto front is shown
+        as a point cloud in downstream metric space (e_Nys vs RMSE_4G), with
+        knee (star) and best-per-metric (diamond/triangle) marked.  Each
+        baseline method appears as a single distinctly-shaped point.
+        """
         import matplotlib.pyplot as plt
+        from ._ma_helpers import (plot_pareto_scatter, get_knee_values,
+                                  resolve_metric)
 
         out_path = os.path.join(self.fig_dir, "baseline_comparison_grouped.pdf")
 
+        # --- R1 Pareto front ---
+        front_dfs = {}
+        colors = {}
+        knee_vals = {}
+
+        fdf_r1 = self._load_front_metrics(run_pattern="R1", space="raw")
+        if fdf_r1.empty:
+            fdf_r1 = df[(df["run_id"].astype(str).str.contains("R1"))
+                        & (df["k"].fillna(300).astype(int) == 300)].copy()
+        else:
+            fdf_r1 = fdf_r1[fdf_r1["k"].fillna(300).astype(int) == 300].copy()
+
+        if not fdf_r1.empty:
+            front_dfs["R1 (NSGA-II)"] = fdf_r1
+            colors["R1 (NSGA-II)"] = "#1f77b4"
+            knee_vals["R1 (NSGA-II)"] = get_knee_values(df, "R1", k=300)
+
+        # --- Baseline single points from R10 ---
         d_all = df[df["k"].fillna(300).astype(int) == 300].copy()
+
+        # Resolve metric aliases in d_all
         _aliases = {"krr_rmse_4G": ["krr_rmse_cov_area_4G", "krr_rmse_area_4G"]}
         for canon, aliases in _aliases.items():
             if canon not in d_all.columns:
                 for alias in aliases:
                     if alias in d_all.columns:
-                        d_all[canon] = d_all[alias]; break
+                        d_all[canon] = d_all[alias]
+                        break
 
         d_base = d_all[d_all["run_id"].astype(str).str.contains("R10")].copy()
         if d_base.empty and "method" in d_all.columns:
             d_base = d_all[d_all["method"].astype(str) != "nsga2"].copy()
 
-        metric_defs = [
-            ("nystrom_error",  "e_Nys"), ("krr_rmse_4G", "RMSE_4G"), ("geo_kl", "KL_geo"),
-        ]
-        metrics = [(m, lab) for m, lab in metric_defs if m in d_all.columns]
+        _method_labels = {
+            "uniform": "Uniform", "kmeans": "k-Means", "herding": "Herding",
+            "farthest_first": "FF", "kernel_thinning": "K.Thin.",
+            "leverage": "RLS", "dpp": "DPP",
+        }
 
-        if d_base.empty or not metrics:
-            fig, ax = plt.subplots(figsize=(7, 4))
-            ax.text(0.5, 0.5, "No baseline comparison data (R10) at k=300.",
+        baseline_points = {}
+        baseline_markers = {}
+        _markers = ["s", "^", "P", "X", "h", "D", "p", "8"]
+        has_method = "method" in d_base.columns
+
+        if has_method and not d_base.empty:
+            for i, method in enumerate(sorted(d_base["method"].unique())):
+                sub = d_base[d_base["method"] == method]
+                blabel = _method_labels.get(method, method)
+                bvals = {}
+                for metric in ["nystrom_error", "krr_rmse_4G"]:
+                    if metric in sub.columns and sub[metric].notna().any():
+                        bvals[metric] = float(sub[metric].mean())
+                if bvals:
+                    baseline_points[blabel] = bvals
+                    baseline_markers[blabel] = _markers[i % len(_markers)]
+        elif not d_base.empty:
+            # Single unnamed baseline
+            bvals = {}
+            for metric in ["nystrom_error", "krr_rmse_4G"]:
+                if metric in d_base.columns and d_base[metric].notna().any():
+                    bvals[metric] = float(d_base[metric].mean())
+            if bvals:
+                baseline_points["Baseline"] = bvals
+                baseline_markers["Baseline"] = "s"
+
+        if not front_dfs and not baseline_points:
+            fig, ax = plt.subplots(figsize=(5.5, 4.5))
+            ax.text(0.5, 0.5, "No baseline comparison data (R1/R10) at k=300.",
                     ha="center", va="center", transform=ax.transAxes, fontsize=9)
             ax.set_axis_off()
             return _save(fig, out_path)
 
-        has_method = "method" in d_base.columns
-        has_variant = "variant" in d_base.columns
-
-        method_order = ["uniform", "kmeans", "herding", "farthest_first",
-                        "kernel_thinning", "leverage", "dpp"]
-        if has_method:
-            methods_available = sorted(d_base["method"].unique())
-        else:
-            methods_available = ["baseline"]
-        methods = [m for m in method_order if m in methods_available]
-        methods.extend([m for m in methods_available if m not in methods])
-
-        _method_labels = {
-            "uniform": "Uniform", "kmeans": "k-Means", "herding": "Herding",
-            "farthest_first": "Farthest-First", "kernel_thinning": "Kern. Thin.",
-            "leverage": "RLS", "dpp": "DPP",
-        }
-
-        # R1 knee reference
-        d_r1 = d_all[d_all["run_id"].astype(str).str.contains("R1")]
-        r1_ref = {}
-        if not d_r1.empty:
-            knee = d_r1[d_r1.get("rep_name", pd.Series(dtype=str)).astype(str) == "knee"]
-            if knee.empty: knee = d_r1
-            for m, _ in metrics:
-                if m in knee.columns and knee[m].notna().any():
-                    r1_ref[m] = float(knee[m].min())
-
-        # Determine variants
-        variants = ["unconstrained", "quota_matched"]
-        method_data = {}
-        for method in methods:
-            method_data[method] = {}
-            sub_m = d_base[d_base["method"] == method] if has_method else d_base
-            if has_variant and sub_m["variant"].nunique() > 1:
-                for var in variants:
-                    sub_v = sub_m[sub_m["variant"].astype(str).str.contains(var)]
-                    if not sub_v.empty:
-                        method_data[method][var] = {
-                            m: float(sub_v[m].mean()) for m, _ in metrics
-                            if m in sub_v.columns and sub_v[m].notna().any()}
-            else:
-                if not sub_m.empty:
-                    method_data[method]["unconstrained"] = {
-                        m: float(sub_m[m].mean()) for m, _ in metrics
-                        if m in sub_m.columns and sub_m[m].notna().any()}
-
-        has_quota = any("quota_matched" in method_data.get(m, {}) for m in methods)
-
-        # ---- Build tidy data for R ----
-        tidy_rows = []
-        for method in methods:
-            for var, mvals in method_data.get(method, {}).items():
-                for m, mlabel in metrics:
-                    if m in mvals:
-                        tidy_rows.append({
-                            "method": _method_labels.get(method, method),
-                            "variant": var, "metric": mlabel,
-                            "value": mvals[m], "is_r1_knee": False,
-                        })
-        # Add R1-knee
-        for m, mlabel in metrics:
-            if m in r1_ref:
-                tidy_rows.append({
-                    "method": "R1-knee", "variant": "unconstrained",
-                    "metric": mlabel, "value": r1_ref[m], "is_r1_knee": True,
-                })
-
-        tidy_df = pd.DataFrame(tidy_rows)
-
-        # ---- Matplotlib fallback ----
-        def _mpl_fallback():
-            n_panels = len(metrics)
-            fig, axes_arr = plt.subplots(1, n_panels, figsize=(max(7, n_panels * 4), 4.5))
-            if n_panels == 1:
-                axes_arr = [axes_arr]
-            mpl_metric_labels = {
-                "e_Nys": r"$e_{\rm Nys}$", "RMSE_4G": r"RMSE$_{\rm 4G}$",
-                "KL_geo": r"KL$_{\rm geo}$",
-            }
-            for ax, (metric, mlabel) in zip(axes_arr, metrics):
-                n_methods = len(methods) + 1
-                x = np.arange(n_methods)
-                if has_quota:
-                    width = 0.35
-                    uncons_vals = [method_data.get(m, {}).get("unconstrained", {}).get(metric, 0)
-                                   for m in methods] + [r1_ref.get(metric, 0)]
-                    quota_vals = [method_data.get(m, {}).get("quota_matched", {}).get(metric, 0)
-                                  for m in methods] + [r1_ref.get(metric, 0)]
-                    ax.bar(x - width / 2, uncons_vals, width=width * 0.9,
-                           color="#1f77b4", alpha=0.8, label="Unconstrained",
-                           edgecolor="white", linewidth=0.5)
-                    ax.bar(x + width / 2, quota_vals, width=width * 0.9,
-                           color="#ff7f0e", alpha=0.8, label="Quota-matched",
-                           edgecolor="white", linewidth=0.5)
-                else:
-                    vals = [method_data.get(m, {}).get("unconstrained", {}).get(metric, 0)
-                            for m in methods] + [r1_ref.get(metric, 0)]
-                    colors = ["#1f77b4"] * len(methods) + ["#d62728"]
-                    ax.bar(x, vals, width=0.55, color=colors, alpha=0.85,
-                           edgecolor="white", linewidth=0.5)
-                if metric in r1_ref:
-                    ax.axhline(r1_ref[metric], color="#d62728", linestyle="--",
-                               linewidth=1.0, alpha=0.6)
-                xlabels = [_method_labels.get(m, m) for m in methods] + ["R1-knee"]
-                ax.set_xticks(x)
-                ax.set_xticklabels(xlabels, rotation=35, ha="right", fontsize=7.5)
-                ax.set_title(mpl_metric_labels.get(mlabel, mlabel), fontsize=9)
-                ax.set_ylabel("Value", fontsize=8)
-                ax.grid(True, alpha=0.2, axis="y"); ax.tick_params(labelsize=8)
-                if has_quota:
-                    ax.legend(fontsize=7, loc="upper left")
-            fig.suptitle("Baseline comparison at $k{=}300$ (R10)", fontsize=11, y=1.01)
-            fig.tight_layout()
-            return _save(fig, out_path)
-
-        if tidy_df.empty:
-            return _mpl_fallback()
-
-        return _save_r("fig_baseline_comparison.R", tidy_df, out_path,
-                        fallback_fn=_mpl_fallback)
+        fig, ax = plt.subplots(figsize=(5.5, 4.5))
+        plot_pareto_scatter(
+            ax, front_dfs, colors,
+            x_metric="nystrom_error", y_metric="krr_rmse_4G",
+            knee_values=knee_vals,
+            baseline_points=baseline_points if baseline_points else None,
+            baseline_markers=baseline_markers if baseline_markers else None,
+            title="Baseline comparison at $k{=}300$",
+        )
+        ax.legend(fontsize=6.5, loc="upper right", framealpha=0.9,
+                  edgecolor="0.8", handletextpad=0.4, ncol=2)
+        fig.tight_layout()
+        return _save(fig, out_path)
 
     # ------------------------------------------------------------------
     # Fig N8: State KPI drift heatmap (complementary, matplotlib only)
@@ -1043,3 +922,203 @@ class ComparisonFigsMixin:
         ax.legend(fontsize=7, loc="upper right", ncol=2); ax.grid(True, alpha=0.25)
         fig.tight_layout()
         return _save(fig, os.path.join(self.fig_dir, "pareto_front_evolution.pdf"))
+
+    # ------------------------------------------------------------------
+    # Fig 9: Downstream model heatmap (Section VIII.C)
+    # ------------------------------------------------------------------
+    def fig_downstream_model_heatmap(self, df: pd.DataFrame) -> str:
+        r"""Fig 9: Dual-colormap heatmap of downstream model performance.
+
+        Left half  = regression targets (RMSE, lower is better).
+        Right half = classification targets (balanced accuracy, higher is better).
+        Models as rows; targets as columns.  A vertical divider separates the
+        two metric families, and each half has its own colorbar.
+        """
+        import re as _re
+        import matplotlib.pyplot as plt
+        from matplotlib.colors import Normalize
+
+        out_path = os.path.join(self.fig_dir, "downstream_model_heatmap.pdf")
+
+        # ---- filter to R1, k=300 ----
+        d = df[df["run_id"].astype(str).str.contains("R1")].copy()
+        if d.empty:
+            fig, ax = plt.subplots(figsize=(8, 3))
+            ax.text(0.5, 0.5, "Downstream model data not yet generated (R1 results needed).",
+                    ha="center", va="center", transform=ax.transAxes, fontsize=9)
+            ax.set_axis_off()
+            return _save(fig, out_path)
+        d["k"] = d["k"].astype(int)
+        d300 = d[d["k"] == 300]
+        if d300.empty:
+            d300 = d  # fall back to any k
+
+        # ---- discover targets ----
+        reg_models = {"krr": "KRR", "knn": "KNN", "rf": "RF", "gbt": "GBT"}
+        cls_models = {"knn": "KNN", "rf": "RF", "lr": "LR", "gbt": "GBT"}
+
+        reg_targets = set()
+        for col in d300.columns:
+            m = _re.match(r"^(krr|knn|rf|gbt)_rmse_(.+)$", col)
+            if m:
+                reg_targets.add(m.group(2))
+        reg_targets = sorted(reg_targets)
+
+        cls_targets = set()
+        for col in d300.columns:
+            m = _re.match(r"^(knn|rf|lr|gbt)_bal_accuracy_(.+)$", col)
+            if m:
+                cls_targets.add(m.group(2))
+        if not cls_targets:
+            for col in d300.columns:
+                m = _re.match(r"^(knn|rf|lr|gbt)_accuracy_(.+)$", col)
+                if m:
+                    cls_targets.add(m.group(2))
+        cls_targets = sorted(cls_targets)
+
+        if not reg_targets and not cls_targets:
+            fig, ax = plt.subplots(figsize=(8, 3))
+            ax.text(0.5, 0.5, "No downstream regression/classification columns found.",
+                    ha="center", va="center", transform=ax.transAxes, fontsize=9)
+            ax.set_axis_off()
+            return _save(fig, out_path)
+
+        # ---- unified model list ----
+        all_models = ["KRR", "KNN", "RF", "GBT", "LR"]
+        reg_model_keys = {"KRR": "krr", "KNN": "knn", "RF": "rf", "GBT": "gbt"}
+        cls_model_keys = {"KNN": "knn", "RF": "rf", "LR": "lr", "GBT": "gbt"}
+
+        n_reg = len(reg_targets)
+        n_cls = len(cls_targets)
+        n_models = len(all_models)
+
+        # ---- build data matrices ----
+        reg_matrix = np.full((n_models, n_reg), np.nan)
+        for i, model_label in enumerate(all_models):
+            key = reg_model_keys.get(model_label)
+            if key is None:
+                continue
+            for j, tgt in enumerate(reg_targets):
+                col_name = f"{key}_rmse_{tgt}"
+                if col_name in d300.columns and d300[col_name].notna().any():
+                    reg_matrix[i, j] = float(d300[col_name].mean())
+
+        cls_matrix = np.full((n_models, n_cls), np.nan)
+        for i, model_label in enumerate(all_models):
+            key = cls_model_keys.get(model_label)
+            if key is None:
+                continue
+            for j, tgt in enumerate(cls_targets):
+                bal_col = f"{key}_bal_accuracy_{tgt}"
+                acc_col = f"{key}_accuracy_{tgt}"
+                if bal_col in d300.columns and d300[bal_col].notna().any():
+                    cls_matrix[i, j] = float(d300[bal_col].mean())
+                elif acc_col in d300.columns and d300[acc_col].notna().any():
+                    cls_matrix[i, j] = float(d300[acc_col].mean())
+
+        # ---- shorten target names ----
+        def _short(name: str) -> str:
+            return (name.replace("cov_area_", "")
+                        .replace("cov_hh_", "hh_")
+                        .replace("cov_res_", "res_")
+                        .replace("concentrated_", "conc_")
+                        .replace("_", " "))
+
+        reg_labels = [_short(t) for t in reg_targets]
+        cls_labels = [_short(t) for t in cls_targets]
+        all_labels = reg_labels + cls_labels
+
+        # ---- plot ----
+        n_total = n_reg + n_cls
+        fig_w = max(7, n_total * 0.55 + 3.5)
+        fig_h = max(3, n_models * 0.55 + 2.0)
+        fig, ax = plt.subplots(figsize=(fig_w, fig_h))
+
+        # normalizations
+        reg_finite = reg_matrix[np.isfinite(reg_matrix)]
+        cls_finite = cls_matrix[np.isfinite(cls_matrix)]
+        reg_norm = Normalize(vmin=reg_finite.min() if len(reg_finite) else 0,
+                             vmax=reg_finite.max() if len(reg_finite) else 1)
+        cls_norm = Normalize(vmin=cls_finite.min() if len(cls_finite) else 0,
+                             vmax=cls_finite.max() if len(cls_finite) else 1)
+
+        cmap_reg = plt.cm.RdYlGn_r   # lower RMSE = green
+        cmap_cls = plt.cm.RdYlGn      # higher accuracy = green
+
+        # draw cells manually for dual colormaps
+        for i in range(n_models):
+            # regression half
+            for j in range(n_reg):
+                val = reg_matrix[i, j]
+                if np.isfinite(val):
+                    color = cmap_reg(reg_norm(val))
+                    ax.add_patch(plt.Rectangle((j, i - 0.5), 1, 1,
+                                               facecolor=color, edgecolor="white",
+                                               linewidth=0.5))
+                    text_color = "white" if reg_norm(val) > 0.65 else "black"
+                    ax.text(j + 0.5, i, f"{val:.3f}", ha="center", va="center",
+                            fontsize=5.5, color=text_color, fontweight="medium")
+                else:
+                    ax.add_patch(plt.Rectangle((j, i - 0.5), 1, 1,
+                                               facecolor="#e0e0e0", edgecolor="white",
+                                               linewidth=0.5))
+            # classification half
+            for j in range(n_cls):
+                col_idx = n_reg + j
+                val = cls_matrix[i, j]
+                if np.isfinite(val):
+                    color = cmap_cls(cls_norm(val))
+                    ax.add_patch(plt.Rectangle((col_idx, i - 0.5), 1, 1,
+                                               facecolor=color, edgecolor="white",
+                                               linewidth=0.5))
+                    text_color = "white" if cls_norm(val) > 0.65 else "black"
+                    ax.text(col_idx + 0.5, i, f"{val:.3f}", ha="center", va="center",
+                            fontsize=5.5, color=text_color, fontweight="medium")
+                else:
+                    ax.add_patch(plt.Rectangle((col_idx, i - 0.5), 1, 1,
+                                               facecolor="#e0e0e0", edgecolor="white",
+                                               linewidth=0.5))
+
+        # divider line
+        ax.axvline(x=n_reg, color="black", linewidth=2.5, linestyle="-")
+
+        # axes
+        ax.set_xlim(0, n_total)
+        ax.set_ylim(-0.5, n_models - 0.5)
+        ax.invert_yaxis()
+        ax.set_xticks([j + 0.5 for j in range(n_total)])
+        ax.set_xticklabels(all_labels, rotation=50, ha="right", fontsize=7)
+        ax.set_yticks(range(n_models))
+        ax.set_yticklabels(all_models, fontsize=8, fontweight="bold")
+
+        # half-labels above
+        if n_reg > 0:
+            ax.text(n_reg / 2, -1.0, "Regression (RMSE $\\downarrow$)",
+                    ha="center", va="bottom", fontsize=8, fontweight="bold",
+                    color="#8B0000")
+        if n_cls > 0:
+            ax.text(n_reg + n_cls / 2, -1.0, "Classification (Bal. Acc. $\\uparrow$)",
+                    ha="center", va="bottom", fontsize=8, fontweight="bold",
+                    color="#006400")
+
+        ax.tick_params(axis="both", which="both", length=0)
+
+        # colorbars
+        sm_reg = plt.cm.ScalarMappable(cmap=cmap_reg, norm=reg_norm)
+        sm_reg.set_array([])
+        sm_cls = plt.cm.ScalarMappable(cmap=cmap_cls, norm=cls_norm)
+        sm_cls.set_array([])
+
+        cbar_reg = fig.colorbar(sm_reg, ax=ax, fraction=0.02, pad=0.01,
+                                location="left", shrink=0.8)
+        cbar_reg.set_label("RMSE", fontsize=7, labelpad=3)
+        cbar_reg.ax.tick_params(labelsize=6)
+
+        cbar_cls = fig.colorbar(sm_cls, ax=ax, fraction=0.02, pad=0.01,
+                                location="right", shrink=0.8)
+        cbar_cls.set_label("Bal. Accuracy", fontsize=7, labelpad=3)
+        cbar_cls.ax.tick_params(labelsize=6)
+
+        ax.set_title("Downstream model comparison (R1, $k{=}300$)", fontsize=10, pad=18)
+        fig.tight_layout()
+        return _save(fig, out_path)
