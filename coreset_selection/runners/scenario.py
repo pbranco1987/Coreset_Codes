@@ -401,12 +401,9 @@ def run_scenario_standalone(
         k_to_rep_ids: Dict[int, List[int]] = {}
         n_skipped = 0   # track reps skipped by resume
         for k in k_values:
-            # Include k suffix when the RunSpec defines a k-sweep, even if
-            # only a single k was passed on the CLI (e.g. parallel_runner).
-            if len(k_values) > 1 or spec.sweep_k is not None:
-                run_name = f"{run_id}_k{k}{dim_suffix}"
-            else:
-                run_name = f"{run_id}{dim_suffix}"
+            # Always include _k{k} suffix so that parallel single-k
+            # launches (e.g. k=100 and k=300) never collide.
+            run_name = f"{run_id}_k{k}{dim_suffix}"
             n_reps_per_k = _n_reps_for(k)
             if _explicit_rep_ids is not None:
                 k_to_rep_ids[k] = list(_explicit_rep_ids)
@@ -497,10 +494,8 @@ def run_scenario_standalone(
         # PHASE 2: Run experiments (caches are guaranteed to exist)
         # --------------------------------------------------------------
         for k in k_values:
-            if len(k_values) > 1 or spec.sweep_k is not None:
-                run_name = f"{run_id}_k{k}{dim_suffix}"
-            else:
-                run_name = f"{run_id}{dim_suffix}"
+            # Always include _k{k} suffix (mirrors Phase 1 logic).
+            run_name = f"{run_id}_k{k}{dim_suffix}"
             current_rep_ids = k_to_rep_ids[k]
 
             for rep in current_rep_ids:
