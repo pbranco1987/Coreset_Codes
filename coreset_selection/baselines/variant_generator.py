@@ -103,6 +103,7 @@ class BaselineVariantGenerator:
         save_indices_fn: Optional[Callable[[str, np.ndarray, Dict], None]] = None,
         regimes: Optional[List[str]] = None,
         verbose: bool = True,
+        job_label: str = "",
     ) -> List[Dict[str, Any]]:
         """Run all baseline variants across all supplied spaces.
 
@@ -121,6 +122,8 @@ class BaselineVariantGenerator:
         verbose : bool
             If True (default), emit detailed per-combo progress with timing
             and ETA information.
+        job_label : str
+            Optional prefix for progress lines, e.g. ``"[Job 12/42]"``.
 
         Returns
         -------
@@ -147,6 +150,13 @@ class BaselineVariantGenerator:
         combo_idx = 0
         t_run_all_start = time.perf_counter()
         combo_times: List[float] = []  # wall time for each combo (selection + eval)
+
+        # Elapsed-time prefix helper
+        def _el() -> str:
+            dt = time.perf_counter() - t_run_all_start
+            m, s = divmod(int(dt), 60)
+            h, m = divmod(m, 60)
+            return f"[{h:02d}:{m:02d}:{s:02d}]"
 
         # Build per-regime projectors lazily
         _projectors: Dict[str, GeographicConstraintProjector] = {}
@@ -177,12 +187,14 @@ class BaselineVariantGenerator:
         # Pre-build the muni projector for joint enforcement
         muni_projector = self.projector  # default projector uses muni
 
+        _jl = f"{job_label} " if job_label else ""
+
         for space_idx, (space_name, Xs) in enumerate(spaces.items(), 1):
             Xs = np.asarray(Xs, dtype=np.float64)
             n = Xs.shape[0]
 
             if verbose:
-                print(f"\n  ── Space {space_idx}/{n_spaces}: {space_name} "
+                print(f"\n  {_el()} {_jl}── Space {space_idx}/{n_spaces}: {space_name} "
                       f"(n={n}, d={Xs.shape[1]}) ──", flush=True)
 
             # Bandwidth via median heuristic sigma^2 = median(d^2) / 2
@@ -200,7 +212,7 @@ class BaselineVariantGenerator:
 
             if verbose:
                 dt_prep = time.perf_counter() - t_space_start
-                print(f"     RFF prep: sigma_sq={sigma_sq:.4f}, "
+                print(f"  {_el()}    RFF prep: sigma_sq={sigma_sq:.4f}, "
                       f"Phi=({Phi.shape[0]},{Phi.shape[1]}) ({dt_prep:.1f}s)",
                       flush=True)
 
@@ -244,7 +256,7 @@ class BaselineVariantGenerator:
                 proj = _get_projector(regime)
 
                 if verbose:
-                    print(f"\n     Regime: {regime} ({len(methods)} methods)",
+                    print(f"\n  {_el()} {_jl}   Regime: {regime} ({len(methods)} methods)",
                           flush=True)
 
                 for method_idx, (short_name, fn) in enumerate(methods.items(), 1):
@@ -256,27 +268,27 @@ class BaselineVariantGenerator:
 
                     # ── (a) Selection ──
                     if verbose:
-                        print(f"\n     [{combo_idx}/{total_combos}] "
+                        print(f"\n  {_el()} {_jl}[{combo_idx}/{total_combos}] "
                               f"{short_name} ({full_name}) | "
                               f"space={space_name} regime={regime}",
                               flush=True)
-                        print(f"       (a) Selection...", end=" ", flush=True)
+                        print(f"  {_el()}   (a) Selection...", end=" ", flush=True)
 
                     t_sel_start = time.perf_counter()
                     try:
                         sel = np.asarray(fn(), dtype=int)
                     except Exception as exc:
-                        print(f"FAILED: {exc}", flush=True)
+                        print(f"FAILED: {exc} {_el()}", flush=True)
                         continue
                     dt_sel = time.perf_counter() - t_sel_start
 
                     if verbose:
-                        print(f"done ({dt_sel:.1f}s, {len(sel)} indices)",
+                        print(f"done ({dt_sel:.1f}s, {len(sel)} indices) {_el()}",
                               flush=True)
 
                     # ── (b) Projection / feasibility enforcement ──
                     if verbose:
-                        print(f"       (b) Projection ({regime})...",
+                        print(f"  {_el()}   (b) Projection ({regime})...",
                               end=" ", flush=True)
                     t_proj_start = time.perf_counter()
 
@@ -342,8 +354,11 @@ class BaselineVariantGenerator:
                         el_m, el_s = divmod(int(elapsed_total), 60)
                         el_h, el_m = divmod(el_m, 60)
                         pct = combo_idx * 100 // total_combos
-                        print(f"       >> Combo {combo_idx}/{total_combos} "
-                              f"({pct}%) done in {dt_combo:.1f}s | "
+                        bar_len = 20
+                        filled = int(bar_len * combo_idx / total_combos)
+                        bar = "█" * filled + "░" * (bar_len - filled)
+                        print(f"  {_el()} {_jl}>> [{bar}] {combo_idx}/{total_combos} "
+                              f"({pct}%) | {dt_combo:.1f}s this combo | "
                               f"Elapsed: {el_h}h{el_m:02d}m{el_s:02d}s | "
                               f"ETA: {eta_h}h{eta_m:02d}m{eta_s:02d}s | "
                               f"Avg: {avg_combo:.1f}s/combo",
@@ -387,7 +402,7 @@ class BaselineVariantGenerator:
             dt_total = time.perf_counter() - t_run_all_start
             dt_m, dt_s = divmod(int(dt_total), 60)
             dt_h, dt_m = divmod(dt_m, 60)
-            print(f"\n  ── All {total_combos} combos completed in "
+            print(f"\n  {_el()} {_jl}── All {total_combos} combos completed in "
                   f"{dt_h}h{dt_m:02d}m{dt_s:02d}s ──",
                   flush=True)
 

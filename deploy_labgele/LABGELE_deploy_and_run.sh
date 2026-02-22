@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
 # ============================================================================
-# LABGELE — Deploy and Run Pop-Quota/Joint Baseline Experiments
+# LABGELE — Deploy and Run Pop-Quota/Joint Baseline Experiments (42 jobs)
+#
+# Experiment structure:
+#   Pop-quota:   7 k-values x 5 reps = 35 jobs  (Jobs 1-35)
+#   Joint-quota: 7 k-values x 1 rep  =  7 jobs  (Jobs 36-42)
+#   Total: 42 jobs
+#
+# Each job runs 8 methods x 3 spaces = 24 combos with 5 eval stages each.
 #
 # USAGE (from JupyterHub terminal):
 #   1. Upload pop_baselines_deploy.tar.gz to ~/Coreset_Codes/deploy_labgele/
@@ -20,8 +27,13 @@ cd ~/Coreset_Codes
 PROJECT_DIR="$(pwd)"
 TARBALL="deploy_labgele/pop_baselines_deploy.tar.gz"
 
+TOTAL_JOBS=42
+
 echo "============================================================"
-echo "  LABGELE — Deploy Pop-Quota + Joint Baselines"
+echo "  LABGELE — Deploy Pop-Quota + Joint Baselines ($TOTAL_JOBS jobs)"
+echo ""
+echo "  Pop-quota:   7k x 5 reps = 35 jobs  (Jobs 1-35)"
+echo "  Joint-quota: 7k x 1 rep  =  7 jobs  (Jobs 36-42)"
 echo "============================================================"
 echo ""
 
@@ -83,7 +95,9 @@ python -m coreset_selection.scripts.run_pop_baselines \
     --spaces vae \
     --cache-dir "$CACHE_DIR" \
     --output-dir runs_out_pop_baselines_test \
-    --seed 123 2>&1 | tail -20
+    --seed 123 \
+    --job-num 1 --total-jobs 1 \
+    2>&1 | tail -20
 
 if [ $? -ne 0 ]; then
     echo "  [ERROR] Smoke test failed! Check the error above."
@@ -92,8 +106,8 @@ fi
 echo "  [OK] Smoke test passed"
 echo ""
 
-# ── Step 4: Launch all jobs in tmux ──
-echo "[Step 4] Launching all 42 jobs in tmux ..."
+# ── Step 4: Launch all 42 jobs in tmux ──
+echo "[Step 4] Launching all $TOTAL_JOBS jobs in tmux ..."
 
 SEED=123
 OUTPUT_DIR="runs_out_pop_baselines"
@@ -113,22 +127,25 @@ export PYTHONIOENCODING=utf-8
 # Create tmux session with monitor window
 tmux new-session -d -s "$SESSION" -n "monitor"
 tmux send-keys -t "$SESSION:monitor" \
-    "watch -n 30 'echo \"=== Pop-Quota + Joint Baselines ===\"; ps aux | grep run_pop_baselines | grep -v grep | wc -l; echo \"active jobs\"; echo \"\"; ls -lt logs/pop_baselines/ 2>/dev/null | head -10'" C-m
+    "watch -n 30 'echo \"=== Pop-Quota + Joint Baselines ($TOTAL_JOBS jobs) ===\"; echo \"\"; echo \"Active:\"; ps aux | grep run_pop_baselines | grep -v grep | wc -l; echo \"jobs running\"; echo \"\"; echo \"Recent logs:\"; ls -lt logs/pop_baselines/ 2>/dev/null | head -10'" C-m
 
 # Pop-quota: one tmux window per k value (5 reps as background processes)
+JOB=0
 for K in 30 50 100 200 300 400 500; do
     WNAME="pop_k${K}"
     tmux new-window -t "$SESSION" -n "$WNAME"
 
     CMD="cd $PROJECT_DIR && export OMP_NUM_THREADS=1 && export MKL_NUM_THREADS=1 && "
     for REP in 0 1 2 3 4; do
+        JOB=$((JOB + 1))
         CMD+="python -m coreset_selection.scripts.run_pop_baselines "
         CMD+="--k $K --rep-id $REP --regime pop_quota "
         CMD+="--spaces raw,vae,pca "
         CMD+="--cache-dir $CACHE_DIR --output-dir $OUTPUT_DIR --seed $SEED "
+        CMD+="--job-num $JOB --total-jobs $TOTAL_JOBS "
         CMD+="> $LOGDIR/pop_quota_k${K}_rep${REP}.log 2>&1 & "
     done
-    CMD+="echo 'k=$K: 5 pop-quota reps launched (PIDs: '\$(jobs -p)')'; wait; echo '=== k=$K: ALL POP-QUOTA DONE ==='"
+    CMD+="echo 'k=$K: 5 pop-quota reps launched (Jobs $((JOB-4))-$JOB/$TOTAL_JOBS)'; wait; echo '=== k=$K: ALL POP-QUOTA DONE ==='"
 
     tmux send-keys -t "$SESSION:$WNAME" "$CMD" C-m
 done
@@ -137,23 +154,29 @@ done
 tmux new-window -t "$SESSION" -n "joint"
 JCMD="cd $PROJECT_DIR && export OMP_NUM_THREADS=1 && export MKL_NUM_THREADS=1 && "
 for K in 30 50 100 200 300 400 500; do
+    JOB=$((JOB + 1))
     JCMD+="python -m coreset_selection.scripts.run_pop_baselines "
     JCMD+="--k $K --rep-id 0 --regime joint_quota "
     JCMD+="--spaces raw,vae,pca "
     JCMD+="--cache-dir $CACHE_DIR --output-dir $OUTPUT_DIR --seed $SEED "
+    JCMD+="--job-num $JOB --total-jobs $TOTAL_JOBS "
     JCMD+="> $LOGDIR/joint_quota_k${K}_rep0.log 2>&1 & "
 done
-JCMD+="echo '7 joint jobs launched'; wait; echo '=== ALL JOINT DONE ==='"
+JCMD+="echo '7 joint jobs launched (Jobs 36-42/$TOTAL_JOBS)'; wait; echo '=== ALL JOINT DONE ==='"
 tmux send-keys -t "$SESSION:joint" "$JCMD" C-m
 
 echo ""
 echo "============================================================"
-echo "  ALL 42 JOBS LAUNCHED IN TMUX SESSION: $SESSION"
+echo "  ALL $TOTAL_JOBS JOBS LAUNCHED IN TMUX SESSION: $SESSION"
+echo ""
+echo "  Pop-quota:   Jobs 1-35  (7 windows: pop_k30..pop_k500)"
+echo "  Joint-quota: Jobs 36-42 (1 window: joint)"
 echo "============================================================"
 echo ""
 echo "  tmux attach -t $SESSION              # attach"
 echo "  tmux list-windows -t $SESSION        # list windows"
-echo "  tail -f $LOGDIR/pop_quota_k100_rep0.log   # watch a job"
+echo "  tail -f $LOGDIR/pop_quota_k100_rep0.log   # watch a pop job"
+echo "  tail -f $LOGDIR/joint_quota_k100_rep0.log  # watch a joint job"
 echo "  ps aux | grep run_pop_baselines | grep -v grep | wc -l  # count"
 echo ""
 echo "  Results will be in: $OUTPUT_DIR/"

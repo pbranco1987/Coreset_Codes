@@ -6,11 +6,18 @@ Loads cached replicate assets, builds evaluator, and runs baseline methods
 under pop-quota or joint-quota regimes.  Results are saved to CSV in the
 same format as the existing R10 pipeline.
 
+Experiment structure (42 jobs total):
+  - Pop-quota:   7 k-values x 5 reps = 35 jobs  (R10_pop_quota)
+  - Joint-quota: 7 k-values x 1 rep  =  7 jobs  (R10_joint_quota)
+
+Each job runs 8 methods x 3 spaces = 24 combos, each evaluated through
+5 stages (geo, Nystrom+KRR, KPI stability, multi-model, QoS).
+
 Usage:
     python -m coreset_selection.scripts.run_pop_baselines \
         --k 100 --rep-id 0 --regime pop_quota \
         --cache-dir replicate_cache --output-dir runs_out_pop_baselines \
-        --seed 123
+        --seed 123 --job-num 5 --total-jobs 42
 
 Arguments:
     --k INT             Coreset size (from K_GRID: 30,50,100,200,300,400,500)
@@ -22,6 +29,8 @@ Arguments:
     --seed INT          Base random seed (default: 123)
     --alpha-geo FLOAT   Dirichlet smoothing (default: 1.0)
     --rff-dim INT       RFF dimension (default: 2000)
+    --job-num INT       Job number within the experiment (1-based, for display)
+    --total-jobs INT    Total number of jobs in the experiment (for display)
 """
 
 from __future__ import annotations
@@ -34,6 +43,30 @@ from typing import Any, Dict, List, Optional
 
 import numpy as np
 import pandas as pd
+
+
+# ── Elapsed-time helper ────────────────────────────────────────────────
+_T0_GLOBAL: float = 0.0  # set once in main()
+
+
+def _elapsed() -> str:
+    """Return '[HH:MM:SS]' elapsed since _T0_GLOBAL."""
+    dt = time.perf_counter() - _T0_GLOBAL
+    m, s = divmod(int(dt), 60)
+    h, m = divmod(m, 60)
+    return f"[{h:02d}:{m:02d}:{s:02d}]"
+
+
+def _fmt_duration(seconds: float) -> str:
+    """Format seconds as 'Xh YYm ZZs' or 'Ym ZZs' or 'ZZs'."""
+    s = int(seconds)
+    if s < 60:
+        return f"{s}s"
+    m, s = divmod(s, 60)
+    if m < 60:
+        return f"{m}m{s:02d}s"
+    h, m = divmod(m, 60)
+    return f"{h}h{m:02d}m{s:02d}s"
 
 
 def main():
@@ -56,6 +89,14 @@ def main():
     parser.add_argument("--seed", type=int, default=123)
     parser.add_argument("--alpha-geo", type=float, default=1.0)
     parser.add_argument("--rff-dim", type=int, default=2000)
+    parser.add_argument(
+        "--job-num", type=int, default=0,
+        help="Job number in the experiment (1-based, for display)",
+    )
+    parser.add_argument(
+        "--total-jobs", type=int, default=0,
+        help="Total jobs in the experiment (for display)",
+    )
     args = parser.parse_args()
 
     k = args.k
@@ -66,6 +107,15 @@ def main():
     rep_seed = seed_base + rep_id
     alpha_geo = args.alpha_geo
     rff_dim = args.rff_dim
+    job_num = args.job_num
+    total_jobs = args.total_jobs
+
+    # Build job label for progress output
+    job_label = ""
+    if job_num > 0 and total_jobs > 0:
+        job_label = f"[Job {job_num}/{total_jobs}]"
+    elif job_num > 0:
+        job_label = f"[Job {job_num}]"
 
     # Output directory structure: output_dir/<regime>/k<k>/rep<rep_id>/results/
     run_label = f"{regime}_k{k}"
@@ -73,43 +123,51 @@ def main():
     results_dir = os.path.join(args.output_dir, regime, f"k{k}", rep_label, "results")
     os.makedirs(results_dir, exist_ok=True)
 
+    global _T0_GLOBAL
     t_global_start = time.perf_counter()
+    _T0_GLOBAL = t_global_start
 
     n_methods = 8  # U, KM, KH, FF, RLS, DPP, KT, KKN
     n_spaces_req = len(requested_spaces)
     total_combos = n_methods * n_spaces_req
+    total_stages_per_combo = 5  # c, d, e, f, g
+    total_operations = total_combos * (2 + total_stages_per_combo)  # +2 for a,b
 
-    print("=" * 70)
-    print(f"  Pop/Joint Baseline Driver")
-    print(f"  regime={regime}  k={k}  rep={rep_id}  seed={rep_seed}")
-    print(f"  spaces={requested_spaces}")
-    print(f"  combos={n_methods} methods x {n_spaces_req} spaces = {total_combos}")
-    print(f"  cache={args.cache_dir}")
-    print(f"  output={results_dir}")
-    print("=" * 70)
+    print(f"{_elapsed()} {'=' * 64}")
+    print(f"{_elapsed()}   Pop/Joint Baseline Driver")
+    if job_label:
+        print(f"{_elapsed()}   {job_label}")
+    print(f"{_elapsed()}   regime={regime}  k={k}  rep={rep_id}  seed={rep_seed}")
+    print(f"{_elapsed()}   spaces={requested_spaces}")
+    print(f"{_elapsed()}   combos={n_methods} methods x {n_spaces_req} spaces = {total_combos}")
+    print(f"{_elapsed()}   eval stages per combo: {total_stages_per_combo} "
+          f"({total_combos * total_stages_per_combo} total evaluations)")
+    print(f"{_elapsed()}   cache={args.cache_dir}")
+    print(f"{_elapsed()}   output={results_dir}")
+    print(f"{_elapsed()} {'=' * 64}")
 
     # ----------------------------------------------------------------
     # 1. Load cached assets
     # ----------------------------------------------------------------
     cache_path = os.path.join(args.cache_dir, f"rep{rep_id:02d}", "assets.npz")
     if not os.path.exists(cache_path):
-        print(f"[ERROR] Cache not found: {cache_path}")
+        print(f"{_elapsed()} [ERROR] Cache not found: {cache_path}")
         sys.exit(1)
 
-    print(f"\n[1/5] Loading cache: {cache_path}")
+    print(f"\n{_elapsed()} [1/5] Loading cache: {cache_path}")
     t0 = time.perf_counter()
 
     from coreset_selection.data.cache import load_replicate_cache
     assets = load_replicate_cache(cache_path)
     dt = time.perf_counter() - t0
-    print(f"  X_scaled={assets.X_scaled.shape}, "
+    print(f"{_elapsed()}   X_scaled={assets.X_scaled.shape}, "
           f"Z_vae={'yes' if assets.Z_vae is not None else 'no'}, "
           f"Z_pca={'yes' if assets.Z_pca is not None else 'no'} ({dt:.1f}s)")
 
     # ----------------------------------------------------------------
     # 2. Build geographic info + projectors
     # ----------------------------------------------------------------
-    print(f"\n[2/5] Building geographic info & projectors...")
+    print(f"\n{_elapsed()} [2/5] Building geographic info & projectors...")
     t0 = time.perf_counter()
 
     from coreset_selection.geo.info import build_geo_info
@@ -134,17 +192,17 @@ def main():
     )
 
     dt = time.perf_counter() - t0
-    print(f"  G={geo.G} groups, N={geo.N} points, "
+    print(f"{_elapsed()}   G={geo.G} groups, N={geo.N} points, "
           f"pi_pop={'yes' if geo.pi_pop is not None else 'no'} ({dt:.1f}s)")
 
     if geo.pi_pop is None:
-        print("[ERROR] Population weights not available in cache — cannot run pop-quota baselines.")
+        print(f"{_elapsed()} [ERROR] Population weights not available in cache — cannot run pop-quota baselines.")
         sys.exit(1)
 
     # ----------------------------------------------------------------
     # 3. Build raw-space evaluator
     # ----------------------------------------------------------------
-    print(f"\n[3/5] Building raw-space evaluator...")
+    print(f"\n{_elapsed()} [3/5] Building raw-space evaluator...")
     t0 = time.perf_counter()
 
     from coreset_selection.experiment._runner_eval import _build_multitarget_y
@@ -163,7 +221,7 @@ def main():
         target_names=tgt_names,
     )
     dt = time.perf_counter() - t0
-    print(f"  Evaluator built ({dt:.1f}s)")
+    print(f"{_elapsed()}   Evaluator built ({dt:.1f}s)")
 
     # Extract downstream targets from cache metadata
     _meta = assets.metadata if hasattr(assets, "metadata") and isinstance(assets.metadata, dict) else {}
@@ -180,31 +238,74 @@ def main():
     n_cls_models = 4   # KNN, RF, LR, GBT
     total_model_fits = n_reg_models * n_reg_targets + n_cls_models * n_cls_targets
 
-    print(f"\n  Evaluation pipeline per method-space combo:")
-    print(f"    [c] Geo diagnostics")
-    print(f"    [d] Nystrom + KRR + state-stability")
-    print(f"    [e] KPI stability")
-    print(f"    [f] Multi-model downstream: "
-          f"{n_reg_models} reg models x {n_reg_targets} targets + "
-          f"{n_cls_models} cls models x {n_cls_targets} targets "
-          f"= {total_model_fits} model fits")
-    print(f"    [g] QoS downstream: 3 models (OLS, Ridge, ElasticNet)")
+    print(f"\n{_elapsed()}   Evaluation pipeline per combo ({total_stages_per_combo} stages):")
+    print(f"{_elapsed()}     [1/5] Geo diagnostics")
+    print(f"{_elapsed()}     [2/5] Nystrom + KRR + state-stability")
+    print(f"{_elapsed()}     [3/5] KPI stability")
+    print(f"{_elapsed()}     [4/5] Multi-model downstream: "
+          f"{n_reg_models} reg x {n_reg_targets} tgts + "
+          f"{n_cls_models} cls x {n_cls_targets} tgts "
+          f"= {total_model_fits} fits")
+    print(f"{_elapsed()}     [5/5] QoS downstream: 3 models (OLS, Ridge, ElasticNet)")
+
+    # ── Stage timing tracker for running averages ──
+    _stage_times: Dict[str, List[float]] = {
+        "geo": [], "nystrom": [], "kpi": [], "multi": [], "qos": [],
+    }
+    _eval_count = [0]  # mutable counter in closure
+
+    def _stage_est(key: str) -> str:
+        """Return estimated time string from running average, or empty."""
+        times = _stage_times.get(key, [])
+        if times:
+            avg = sum(times) / len(times)
+            return f" (est ~{_fmt_duration(avg)})"
+        return ""
+
+    def _stage_record(key: str, dt: float) -> str:
+        """Record stage time, return summary with running average."""
+        _stage_times[key].append(dt)
+        avg = sum(_stage_times[key]) / len(_stage_times[key])
+        n = len(_stage_times[key])
+        if n > 1:
+            return f"done ({dt:.1f}s, avg {avg:.1f}s over {n} combos)"
+        return f"done ({dt:.1f}s)"
+
+    def _eval_eta() -> str:
+        """Estimate remaining evaluation time for this job."""
+        done = _eval_count[0]
+        remaining = total_combos - done
+        if done == 0 or remaining <= 0:
+            return ""
+        # Sum average stage times to estimate per-combo eval time
+        avg_per_combo = 0.0
+        for key in _stage_times:
+            times = _stage_times[key]
+            if times:
+                avg_per_combo += sum(times) / len(times)
+        if avg_per_combo <= 0:
+            return ""
+        eta = remaining * avg_per_combo
+        return f" | Eval ETA: ~{_fmt_duration(eta)} for {remaining} remaining combos"
 
     def evaluate_coreset(idx_sel: np.ndarray) -> Dict[str, Any]:
         """Full evaluation pipeline matching R10's _evaluate_coreset."""
+        _eval_count[0] += 1
+        combo_num = _eval_count[0]
         idx_sel = np.asarray(idx_sel, dtype=int)
         row: Dict[str, Any] = {}
 
-        # [c] Geographic diagnostics
-        print(f"         [c] Geo diagnostics...", end=" ", flush=True)
+        # [1/5] Geographic diagnostics
+        print(f"{_elapsed()}          [1/5] Geo diagnostics{_stage_est('geo')}...",
+              end=" ", flush=True)
         t_stage = time.perf_counter()
         geo_all = dual_geo_diagnostics(geo, idx_sel, k, alpha=alpha_geo)
         row.update(geo_all)
         dt_stage = time.perf_counter() - t_stage
-        print(f"done ({dt_stage:.1f}s)", flush=True)
+        print(f"{_stage_record('geo', dt_stage)} {_elapsed()}", flush=True)
 
-        # [d] Nystrom + KRR + stability
-        print(f"         [d] Nystrom + KRR + state-stability...",
+        # [2/5] Nystrom + KRR + stability
+        print(f"{_elapsed()}          [2/5] Nystrom + KRR + stability{_stage_est('nystrom')}...",
               end=" ", flush=True)
         t_stage = time.perf_counter()
         if state_labels is not None:
@@ -213,10 +314,11 @@ def main():
         else:
             row.update(raw_evaluator.all_metrics(idx_sel))
         dt_stage = time.perf_counter() - t_stage
-        print(f"done ({dt_stage:.1f}s)", flush=True)
+        print(f"{_stage_record('nystrom', dt_stage)} {_elapsed()}", flush=True)
 
-        # [e] KPI stability
-        print(f"         [e] KPI stability...", end=" ", flush=True)
+        # [3/5] KPI stability
+        print(f"{_elapsed()}          [3/5] KPI stability{_stage_est('kpi')}...",
+              end=" ", flush=True)
         t_stage = time.perf_counter()
         if state_labels is not None and raw_evaluator.y is not None:
             try:
@@ -227,15 +329,16 @@ def main():
                 )
                 row.update(kpi_stab)
                 dt_stage = time.perf_counter() - t_stage
-                print(f"done ({dt_stage:.1f}s)", flush=True)
+                print(f"{_stage_record('kpi', dt_stage)} {_elapsed()}", flush=True)
             except Exception as e:
                 dt_stage = time.perf_counter() - t_stage
-                print(f"skipped ({dt_stage:.1f}s): {e}", flush=True)
+                print(f"skipped ({dt_stage:.1f}s): {e} {_elapsed()}", flush=True)
         else:
-            print(f"skipped (no state labels)", flush=True)
+            print(f"skipped (no state labels) {_elapsed()}", flush=True)
 
-        # [f] Multi-model downstream
-        print(f"         [f] Multi-model ({total_model_fits} fits)...",
+        # [4/5] Multi-model downstream
+        print(f"{_elapsed()}          [4/5] Multi-model ({total_model_fits} fits)"
+              f"{_stage_est('multi')}...",
               end=" ", flush=True)
         t_stage = time.perf_counter()
         if extra_reg_targets or cls_targets:
@@ -248,15 +351,16 @@ def main():
                 )
                 row.update(multi_metrics)
                 dt_stage = time.perf_counter() - t_stage
-                print(f"done ({dt_stage:.1f}s)", flush=True)
+                print(f"{_stage_record('multi', dt_stage)} {_elapsed()}", flush=True)
             except Exception as e:
                 dt_stage = time.perf_counter() - t_stage
-                print(f"FAILED ({dt_stage:.1f}s): {e}", flush=True)
+                print(f"FAILED ({dt_stage:.1f}s): {e} {_elapsed()}", flush=True)
         else:
-            print(f"skipped (no targets)", flush=True)
+            print(f"skipped (no targets) {_elapsed()}", flush=True)
 
-        # [g] QoS downstream
-        print(f"         [g] QoS downstream (3 models)...",
+        # [5/5] QoS downstream
+        print(f"{_elapsed()}          [5/5] QoS downstream (3 models)"
+              f"{_stage_est('qos')}...",
               end=" ", flush=True)
         t_stage = time.perf_counter()
         try:
@@ -288,17 +392,21 @@ def main():
             )
             row.update(qos_metrics)
             dt_stage = time.perf_counter() - t_stage
-            print(f"done ({dt_stage:.1f}s)", flush=True)
+            print(f"{_stage_record('qos', dt_stage)} {_elapsed()}", flush=True)
         except Exception as e:
             dt_stage = time.perf_counter() - t_stage
-            print(f"skipped ({dt_stage:.1f}s): {e}", flush=True)
+            print(f"skipped ({dt_stage:.1f}s): {e} {_elapsed()}", flush=True)
+
+        # Per-combo evaluation summary
+        print(f"{_elapsed()}          Eval {combo_num}/{total_combos} complete"
+              f"{_eval_eta()}", flush=True)
 
         return row
 
     # ----------------------------------------------------------------
     # 5. Build spaces and run baselines
     # ----------------------------------------------------------------
-    print(f"\n[4/5] Building feature spaces...")
+    print(f"\n{_elapsed()} [4/5] Building feature spaces...")
     spaces: Dict[str, np.ndarray] = {}
     if "raw" in requested_spaces:
         spaces["raw"] = np.asarray(assets.X_scaled, dtype=np.float64)
@@ -307,7 +415,7 @@ def main():
     if "pca" in requested_spaces and assets.Z_pca is not None:
         spaces["pca"] = np.asarray(assets.Z_pca, dtype=np.float64)
 
-    print(f"  Active spaces: {list(spaces.keys())}")
+    print(f"{_elapsed()}   Active spaces: {list(spaces.keys())}")
 
     from coreset_selection.baselines.variant_generator import BaselineVariantGenerator
 
@@ -321,8 +429,11 @@ def main():
         min_one_per_group=True,
     )
 
-    print(f"\n[5/5] Running {regime} baselines (k={k})...")
-    print(f"  Total: {total_combos} method-space combos, each with 5-stage eval")
+    print(f"\n{_elapsed()} [5/5] Running {regime} baselines (k={k})...")
+    print(f"{_elapsed()}   Total: {total_combos} method-space combos, each with "
+          f"{total_stages_per_combo} eval stages")
+    if job_label:
+        print(f"{_elapsed()}   {job_label}")
     t0_run = time.perf_counter()
 
     rows = gen.run_all(
@@ -330,13 +441,26 @@ def main():
         evaluator_fn=evaluate_coreset,
         regimes=[regime],
         verbose=True,
+        job_label=job_label,
     )
 
     dt_run = time.perf_counter() - t0_run
-    dt_run_m, dt_run_s = divmod(int(dt_run), 60)
-    dt_run_h, dt_run_m = divmod(dt_run_m, 60)
-    print(f"\n  Completed {len(rows)} method-space combos in "
-          f"{dt_run_h}h{dt_run_m:02d}m{dt_run_s:02d}s")
+    print(f"\n{_elapsed()}   Completed {len(rows)} method-space combos in "
+          f"{_fmt_duration(dt_run)}")
+
+    # Print stage timing summary
+    print(f"{_elapsed()}   Stage timing summary (avg over {_eval_count[0]} combos):")
+    for key, label in [("geo", "Geo diagnostics"),
+                       ("nystrom", "Nystrom+KRR"),
+                       ("kpi", "KPI stability"),
+                       ("multi", "Multi-model"),
+                       ("qos", "QoS downstream")]:
+        times = _stage_times.get(key, [])
+        if times:
+            avg = sum(times) / len(times)
+            total = sum(times)
+            print(f"{_elapsed()}     {label}: avg {avg:.1f}s, "
+                  f"total {_fmt_duration(total)} ({len(times)} runs)")
 
     # ----------------------------------------------------------------
     # 6. Save results
@@ -353,21 +477,21 @@ def main():
         df = pd.DataFrame(rows)
         csv_path = os.path.join(results_dir, "all_results.csv")
         df.to_csv(csv_path, index=False)
-        print(f"\n  Saved {len(rows)} rows to: {csv_path}")
+        print(f"\n{_elapsed()}   Saved {len(rows)} rows to: {csv_path}")
 
         # Also save the summary via BaselineVariantGenerator
         summary_path = gen.save_summary(rows, results_dir, filename="baseline_variants_summary.csv")
-        print(f"  Summary: {summary_path}")
+        print(f"{_elapsed()}   Summary: {summary_path}")
     else:
-        print("\n  [WARN] No rows produced!")
+        print(f"\n{_elapsed()}   [WARN] No rows produced!")
 
     total_time = time.perf_counter() - t_global_start
-    total_m, total_s = divmod(int(total_time), 60)
-    total_h, total_m = divmod(total_m, 60)
-    print(f"\n{'=' * 70}")
-    print(f"  DONE  regime={regime} k={k} rep={rep_id}")
-    print(f"  Total time: {total_h}h{total_m:02d}m{total_s:02d}s ({total_time:.0f}s)")
-    print(f"{'=' * 70}")
+    print(f"\n{_elapsed()} {'=' * 64}")
+    print(f"{_elapsed()}   DONE  regime={regime} k={k} rep={rep_id}")
+    if job_label:
+        print(f"{_elapsed()}   {job_label}")
+    print(f"{_elapsed()}   Total time: {_fmt_duration(total_time)} ({total_time:.0f}s)")
+    print(f"{_elapsed()} {'=' * 64}")
 
 
 if __name__ == "__main__":
