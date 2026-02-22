@@ -44,6 +44,7 @@ class GeographicConstraintProjector:
         alpha_geo: float,
         min_one_per_group: bool = True,
         bounds_eps: float = 0.0,
+        weight_type: str = "muni",
     ):
         """
         Initialize the projector.
@@ -56,6 +57,11 @@ class GeographicConstraintProjector:
             Dirichlet smoothing parameter for KL computation
         min_one_per_group : bool
             Whether to require at least one sample per group
+        weight_type : str
+            Target distribution type: ``"muni"`` for municipality-share
+            (π_g = n_g/N) or ``"pop"`` for population-share
+            (π_g^{pop} = Σ pop_i / Σ pop).  Default ``"muni"`` preserves
+            backward compatibility.
         """
         # `bounds_eps` is accepted for backward compatibility with earlier
         # versions of the codebase; the bounded feasibility checks are handled
@@ -65,6 +71,7 @@ class GeographicConstraintProjector:
         self.alpha_geo = alpha_geo
         self.min_one_per_group = min_one_per_group
         self.bounds_eps = float(bounds_eps)
+        self.weight_type = weight_type
         self._quota_cache = {}
         self._quota_path_cache: Optional[list] = None
 
@@ -92,8 +99,9 @@ class GeographicConstraintProjector:
             Target count per group, shape (G,)
         """
         if k not in self._quota_cache:
+            pi = self.geo.get_target_distribution(self.weight_type)
             _, counts = min_achievable_geo_kl_bounded(
-                pi=self.geo.pi,
+                pi=pi,
                 group_sizes=self.geo.group_sizes,
                 k=k,
                 alpha_geo=self.alpha_geo,
@@ -239,8 +247,9 @@ class GeographicConstraintProjector:
                 requested = set(k_grid)
                 return [r for r in self._quota_path_cache if r["k"] in requested]
 
+        pi = self.geo.get_target_distribution(self.weight_type)
         path = compute_quota_path(
-            pi=self.geo.pi,
+            pi=pi,
             group_sizes=self.geo.group_sizes,
             k_grid=k_grid,
             alpha_geo=self.alpha_geo,
@@ -268,7 +277,8 @@ class GeographicConstraintProjector:
             ``saturated_groups`` : list of str (groups at capacity in c*(k)).
         """
         G = self.geo.G
-        supported = self.geo.pi > 0
+        pi = self.geo.get_target_distribution(self.weight_type)
+        supported = pi > 0
         G_pi = int(np.sum(supported))
 
         lb = np.zeros(G, dtype=int)
@@ -318,6 +328,7 @@ class GeographicConstraintProjector:
             Sorted by utilisation descending.  Keys:
             ``group``, ``cstar``, ``n_g``, ``utilisation``, ``pi_g``.
         """
+        pi = self.geo.get_target_distribution(self.weight_type)
         cstar = self.target_counts(k)
         rows = []
         for g in range(self.geo.G):
@@ -329,7 +340,7 @@ class GeographicConstraintProjector:
                 "cstar": c_g,
                 "n_g": n_g,
                 "utilisation": round(util, 4),
-                "pi_g": round(float(self.geo.pi[g]), 6),
+                "pi_g": round(float(pi[g]), 6),
             })
         rows.sort(key=lambda r: r["utilisation"], reverse=True)
         return rows[:top_n]

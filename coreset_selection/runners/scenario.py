@@ -136,6 +136,8 @@ def run_scenario_standalone(
     force_rebuild_cache: bool = False,
     # Resume control
     resume: bool = False,
+    # Dimension override (R13/R14): restrict sweep_dim to specific values
+    dim_values: Optional[List[int]] = None,
 ) -> dict:
     """
     Run a single experiment scenario (R0-R14) as a standalone job.
@@ -222,6 +224,13 @@ def run_scenario_standalone(
 
     spec = run_specs[run_id]
 
+    # Override sweep_dim if --dim-values was provided (R13/R14 parallelization)
+    if dim_values is not None:
+        if spec.sweep_dim is not None:
+            spec = replace(spec, sweep_dim=tuple(dim_values))
+        else:
+            print(f"[WARNING] --dim-values ignored for {run_id} (no dimension sweep)")
+
     # Build base configuration
     base_cfg = build_base_config(
         output_dir=output_dir,
@@ -301,6 +310,19 @@ def run_scenario_standalone(
                 "status": "SKIPPED",
                 "reason": f"Missing dependencies: {missing_deps}",
             }
+
+    # R11 special handling: pass source-run / source-k / source-space
+    # through to the diagnostics runner via CORESET_R11_* env vars.
+    if run_id == "R11":
+        os.environ["CORESET_R11_SOURCE_RUN"] = source_run
+        os.environ["CORESET_R11_SOURCE_SPACE"] = source_space
+        # When --source-k is given, use it; otherwise fall back to the
+        # current k value from --k-values (set dynamically in the loop).
+        if source_k is not None:
+            os.environ["CORESET_R11_K"] = str(source_k)
+        # NOTE: if source_k is None we defer setting CORESET_R11_K to
+        # the per-k loop below so each iteration picks up its own k.
+        _r11_source_k_explicit = source_k is not None
 
     # ------------------------------------------------------------------
     # Progress estimation
@@ -526,6 +548,12 @@ def run_scenario_standalone(
                     # ensure_replicate_cache inside run_single_experiment will
                     # hit the fast path (all keys already present).
 
+                    # R11: set CORESET_R11_K to current k when no
+                    # explicit --source-k was given, so each iteration
+                    # uses the matching R1_k{k} Pareto front.
+                    if run_id == "R11" and not _r11_source_k_explicit:
+                        os.environ["CORESET_R11_K"] = str(k)
+
                     # Run experiment
                     result = run_single_experiment(cfg)
                     results.append(result)
@@ -743,6 +771,14 @@ Scenarios (all run with 1 replicate by default):
         help="(R6 only) k value for source run"
     )
 
+    # R13/R14 dimension sweep override
+    parser.add_argument(
+        "--dim-values",
+        type=str,
+        default=None,
+        help="(R13/R14 only) Comma-separated dimension values to override sweep_dim, e.g. '8' or '8,16'"
+    )
+
     # R12 effort sweep parameters
     parser.add_argument(
         "--effort-pop-sizes",
@@ -763,9 +799,10 @@ Scenarios (all run with 1 replicate by default):
     if args.effort_n_gens is not None:
         os.environ["CORESET_R12_N_GENS"] = str(args.effort_n_gens)
 
-    # Parse k values and rep ids
+    # Parse k values, rep ids, and dim values
     k_values = parse_int_list(args.k_values)
     rep_ids = parse_int_list(args.rep_ids)
+    dim_values_list = parse_int_list(args.dim_values) if args.dim_values else None
 
     try:
         summary = run_scenario_standalone(
@@ -786,6 +823,7 @@ Scenarios (all run with 1 replicate by default):
             source_k=args.source_k,
             force_rebuild_cache=args.force_rebuild_cache,
             resume=args.resume,
+            dim_values=dim_values_list,
         )
 
         if summary["status"] == "success":

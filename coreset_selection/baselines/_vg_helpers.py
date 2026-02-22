@@ -36,6 +36,24 @@ METHOD_REGISTRY: Dict[str, Dict[str, str]] = {
     "SDPP": {"full_name": "k-DPP (quota)",         "regime": "quota"},
     "SKT":  {"full_name": "Kernel thinning (quota)","regime": "quota"},
     "SKKN": {"full_name": "KKM-Nystrom (quota)",   "regime": "quota"},
+    # Population-share quota baselines (P-prefix)
+    "PU":   {"full_name": "Uniform (pop-quota)",        "regime": "pop_quota"},
+    "PKM":  {"full_name": "K-means reps (pop-quota)",   "regime": "pop_quota"},
+    "PKH":  {"full_name": "Kernel herding (pop-quota)",  "regime": "pop_quota"},
+    "PFF":  {"full_name": "Farthest-first (pop-quota)",  "regime": "pop_quota"},
+    "PRLS": {"full_name": "Ridge leverage (pop-quota)",  "regime": "pop_quota"},
+    "PDPP": {"full_name": "k-DPP (pop-quota)",           "regime": "pop_quota"},
+    "PKT":  {"full_name": "Kernel thinning (pop-quota)", "regime": "pop_quota"},
+    "PKKN": {"full_name": "KKM-Nystrom (pop-quota)",     "regime": "pop_quota"},
+    # Joint-constrained baselines (J-prefix)
+    "JU":   {"full_name": "Uniform (joint)",        "regime": "joint_quota"},
+    "JKM":  {"full_name": "K-means reps (joint)",   "regime": "joint_quota"},
+    "JKH":  {"full_name": "Kernel herding (joint)",  "regime": "joint_quota"},
+    "JFF":  {"full_name": "Farthest-first (joint)",  "regime": "joint_quota"},
+    "JRLS": {"full_name": "Ridge leverage (joint)",  "regime": "joint_quota"},
+    "JDPP": {"full_name": "k-DPP (joint)",           "regime": "joint_quota"},
+    "JKT":  {"full_name": "Kernel thinning (joint)", "regime": "joint_quota"},
+    "JKKN": {"full_name": "KKM-Nystrom (joint)",     "regime": "joint_quota"},
 }
 
 # Pairs of (exact-k code, quota-matched code) for structured comparison
@@ -48,6 +66,30 @@ VARIANT_PAIRS: List[Tuple[str, str]] = [
     ("DPP", "SDPP"),
     ("KT",  "SKT"),
     ("KKN", "SKKN"),
+]
+
+# Population-share quota pairs: (exact-k code, pop-quota code)
+POP_QUOTA_PAIRS: List[Tuple[str, str]] = [
+    ("U",   "PU"),
+    ("KM",  "PKM"),
+    ("KH",  "PKH"),
+    ("FF",  "PFF"),
+    ("RLS", "PRLS"),
+    ("DPP", "PDPP"),
+    ("KT",  "PKT"),
+    ("KKN", "PKKN"),
+]
+
+# Joint-constrained pairs: (exact-k code, joint code)
+JOINT_QUOTA_PAIRS: List[Tuple[str, str]] = [
+    ("U",   "JU"),
+    ("KM",  "JKM"),
+    ("KH",  "JKH"),
+    ("FF",  "JFF"),
+    ("RLS", "JRLS"),
+    ("DPP", "JDPP"),
+    ("KT",  "JKT"),
+    ("KKN", "JKKN"),
 ]
 
 

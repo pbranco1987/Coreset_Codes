@@ -81,6 +81,8 @@ from .variant_generator import (
     BaselineResult,
     METHOD_REGISTRY,
     VARIANT_PAIRS,
+    POP_QUOTA_PAIRS,
+    JOINT_QUOTA_PAIRS,
 )
 
 __all__ = [
@@ -132,6 +134,8 @@ __all__ = [
     "BaselineResult",
     "METHOD_REGISTRY",
     "VARIANT_PAIRS",
+    "POP_QUOTA_PAIRS",
+    "JOINT_QUOTA_PAIRS",
 ]
 
 

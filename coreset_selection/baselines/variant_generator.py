@@ -32,6 +32,8 @@ from .utils import rff_features
 from ._vg_helpers import (
     METHOD_REGISTRY,
     VARIANT_PAIRS,
+    POP_QUOTA_PAIRS,
+    JOINT_QUOTA_PAIRS,
     BaselineResult,
 )
 
@@ -99,6 +101,7 @@ class BaselineVariantGenerator:
         spaces: Dict[str, np.ndarray],
         evaluator_fn: Optional[Callable[[np.ndarray], Dict[str, Any]]] = None,
         save_indices_fn: Optional[Callable[[str, np.ndarray, Dict], None]] = None,
+        regimes: Optional[List[str]] = None,
     ) -> List[Dict[str, Any]]:
         """Run all baseline variants across all supplied spaces.
 
@@ -110,6 +113,10 @@ class BaselineVariantGenerator:
             ``f(idx_sel) -> metrics_dict``.  Called on every selection.
         save_indices_fn : callable, optional
             ``f(name, indices, metadata)``.  Called to persist each coreset.
+        regimes : list of str, optional
+            Which regimes to run.  Defaults to ``["exactk", "quota"]`` for
+            backward compatibility.  Supported values:
+            ``"exactk"``, ``"quota"``, ``"pop_quota"``, ``"joint_quota"``.
 
         Returns
         -------
@@ -118,11 +125,44 @@ class BaselineVariantGenerator:
         """
         from .utils import rff_features as _rff
         from ..utils.math import median_sq_dist
+        from ..geo.projector import GeographicConstraintProjector
+
+        if regimes is None:
+            regimes = ["exactk", "quota"]
 
         rows: List[Dict[str, Any]] = []
         seed = self.seed
         k = self.k
         geo = self.geo
+
+        # Build per-regime projectors lazily
+        _projectors: Dict[str, GeographicConstraintProjector] = {}
+
+        def _get_projector(regime: str) -> GeographicConstraintProjector:
+            if regime not in _projectors:
+                if regime in ("exactk", "quota"):
+                    _projectors[regime] = self.projector
+                elif regime == "pop_quota":
+                    _projectors[regime] = GeographicConstraintProjector(
+                        geo=geo,
+                        alpha_geo=self.alpha_geo,
+                        min_one_per_group=self.min_one,
+                        weight_type="pop",
+                    )
+                elif regime == "joint_quota":
+                    # For joint, we need both projectors; store pop here
+                    _projectors[regime] = GeographicConstraintProjector(
+                        geo=geo,
+                        alpha_geo=self.alpha_geo,
+                        min_one_per_group=self.min_one,
+                        weight_type="pop",
+                    )
+                else:
+                    _projectors[regime] = self.projector
+            return _projectors[regime]
+
+        # Pre-build the muni projector for joint enforcement
+        muni_projector = self.projector  # default projector uses muni
 
         for space_name, Xs in spaces.items():
             Xs = np.asarray(Xs, dtype=np.float64)
@@ -140,20 +180,45 @@ class BaselineVariantGenerator:
             mean_phi = Phi.mean(axis=0)
             meanK_approx = Phi @ mean_phi
 
-            # Build method factories
-            exact_methods = self._build_exact_methods(
-                Xs, n, k, sigma_sq, Phi, meanK_approx, seed,
-            )
-            quota_methods = self._build_quota_methods(
-                Xs, Phi, geo, k, sigma_sq, seed,
-            )
+            # Build method factories per regime
+            regime_methods: List[Tuple[str, Dict[str, Callable]]] = []
 
-            # Compute quota vector once for this space (for metadata)
-            quota_vector = self._compute_quota_vector(k)
+            if "exactk" in regimes:
+                exact_methods = self._build_exact_methods(
+                    Xs, n, k, sigma_sq, Phi, meanK_approx, seed,
+                )
+                regime_methods.append(("exactk", exact_methods))
+
+            if "quota" in regimes:
+                quota_methods = self._build_quota_methods(
+                    Xs, Phi, geo, k, sigma_sq, seed,
+                )
+                regime_methods.append(("quota", quota_methods))
+
+            if "pop_quota" in regimes:
+                pop_methods = self._build_pop_quota_methods(
+                    Xs, Phi, geo, k, sigma_sq, seed,
+                )
+                regime_methods.append(("pop_quota", pop_methods))
+
+            if "joint_quota" in regimes:
+                joint_methods = self._build_joint_quota_methods(
+                    Xs, Phi, geo, k, sigma_sq, seed,
+                )
+                regime_methods.append(("joint_quota", joint_methods))
+
+            # Compute quota vectors for metadata
+            quota_vector_muni = self._compute_quota_vector(k, weight_type="muni")
+            quota_vector_pop = (
+                self._compute_quota_vector(k, weight_type="pop")
+                if any(r in regimes for r in ("pop_quota", "joint_quota"))
+                else None
+            )
 
             # Run all methods
-            for regime, methods in [("exactk", exact_methods),
-                                    ("quota", quota_methods)]:
+            for regime, methods in regime_methods:
+                proj = _get_projector(regime)
+
                 for short_name, fn in methods.items():
                     info = METHOD_REGISTRY.get(short_name, {})
                     full_name = info.get("full_name", short_name)
@@ -170,14 +235,29 @@ class BaselineVariantGenerator:
                     # Enforce feasibility
                     mask = np.zeros(n, dtype=bool)
                     mask[sel] = True
-                    if regime == "quota":
-                        mask = self.projector.project_to_quota_mask(
-                            mask, k=k, rng=self.rng,
-                        )
-                    else:
+
+                    if regime == "exactk":
                         mask = self.projector.project_to_exact_k_mask(
                             mask, k=k, rng=self.rng,
                         )
+                    elif regime == "quota":
+                        mask = self.projector.project_to_quota_mask(
+                            mask, k=k, rng=self.rng,
+                        )
+                    elif regime == "pop_quota":
+                        mask = proj.project_to_quota_mask(
+                            mask, k=k, rng=self.rng,
+                        )
+                    elif regime == "joint_quota":
+                        # Two-pass: first enforce pop-share quotas,
+                        # then enforce muni-share quotas
+                        mask = proj.project_to_quota_mask(
+                            mask, k=k, rng=self.rng,
+                        )
+                        mask = muni_projector.project_to_quota_mask(
+                            mask, k=k, rng=self.rng,
+                        )
+
                     sel = np.flatnonzero(mask)
 
                     # Evaluate
@@ -188,6 +268,14 @@ class BaselineVariantGenerator:
                         except Exception:
                             pass
 
+                    # Choose quota vector for metadata
+                    if regime == "pop_quota":
+                        qv = quota_vector_pop
+                    elif regime in ("quota", "joint_quota"):
+                        qv = quota_vector_muni
+                    else:
+                        qv = None
+
                     result = BaselineResult(
                         method=short_name,
                         full_name=full_name,
@@ -196,7 +284,7 @@ class BaselineVariantGenerator:
                         k=k,
                         selected_indices=sel,
                         wall_time_s=wall,
-                        quota_vector=quota_vector if regime == "quota" else None,
+                        quota_vector=qv,
                         metrics=metrics,
                     )
 
@@ -328,12 +416,23 @@ class BaselineVariantGenerator:
     # Internal helpers                                                     #
     # ------------------------------------------------------------------ #
 
-    def _compute_quota_vector(self, k: int) -> Optional[np.ndarray]:
-        """Return the KL-optimal quota vector c*(k), or None on failure."""
+    def _compute_quota_vector(
+        self, k: int, weight_type: str = "muni",
+    ) -> Optional[np.ndarray]:
+        """Return the KL-optimal quota vector c*(k), or None on failure.
+
+        Parameters
+        ----------
+        k : int
+            Coreset size.
+        weight_type : str
+            ``"muni"`` or ``"pop"`` — selects the target distribution.
+        """
         try:
             from ..geo.kl import min_achievable_geo_kl_bounded
+            pi = self.geo.get_target_distribution(weight_type)
             _, counts = min_achievable_geo_kl_bounded(
-                pi=np.asarray(self.geo.pi, dtype=np.float64),
+                pi=np.asarray(pi, dtype=np.float64),
                 group_sizes=np.asarray(self.geo.group_sizes, dtype=int),
                 k=k,
                 alpha_geo=self.alpha_geo,
@@ -407,5 +506,99 @@ class BaselineVariantGenerator:
                         meanK_rff_dim=min(512, rff_dim), unique=True),
             "SKKN": lambda: baseline_kkmeans_nystrom_quota(
                         Xs, geo=geo, k=k, alpha_geo=ag, seed=seed + 18,
+                        sigma_sq=sigma_sq, min_one_per_group=m1),
+        }
+
+    def _build_pop_quota_methods(
+        self, Xs, Phi, geo, k, sigma_sq, seed,
+    ) -> Dict[str, Callable]:
+        """Build population-share quota baselines (P-prefix).
+
+        Identical to ``_build_quota_methods`` but the underlying baseline
+        functions still receive the *same* ``geo`` object.  The difference
+        is enforced at the **projection** step: ``run_all`` uses a
+        population-share projector for the ``pop_quota`` regime.
+        """
+        from . import (
+            baseline_uniform_quota, baseline_kmeans_reps_quota,
+            baseline_kernel_herding_quota, baseline_farthest_first_quota,
+            baseline_rls_quota, baseline_dpp_quota,
+            baseline_kernel_thinning_quota,
+            baseline_kkmeans_nystrom_quota,
+        )
+        ag = self.alpha_geo
+        m1 = self.min_one
+        rff_dim = self.rff_dim
+        return {
+            "PU":   lambda: baseline_uniform_quota(
+                        geo=geo, k=k, alpha_geo=ag, seed=seed + 21),
+            "PKM":  lambda: baseline_kmeans_reps_quota(
+                        Xs, geo=geo, k=k, alpha_geo=ag, seed=seed + 22,
+                        min_one_per_group=m1),
+            "PKH":  lambda: baseline_kernel_herding_quota(
+                        Xs, Phi=Phi, geo=geo, k=k, alpha_geo=ag, seed=seed + 23,
+                        min_one_per_group=m1),
+            "PFF":  lambda: baseline_farthest_first_quota(
+                        Xs, geo=geo, k=k, alpha_geo=ag, seed=seed + 24,
+                        min_one_per_group=m1),
+            "PRLS": lambda: baseline_rls_quota(
+                        Xs, Phi=Phi, geo=geo, k=k, alpha_geo=ag, seed=seed + 25,
+                        min_one_per_group=m1),
+            "PDPP": lambda: baseline_dpp_quota(
+                        Xs, Phi=Phi, geo=geo, k=k, alpha_geo=ag, seed=seed + 26,
+                        min_one_per_group=m1),
+            "PKT":  lambda: baseline_kernel_thinning_quota(
+                        Xs, geo=geo, k=k, alpha_geo=ag, sigma_sq=sigma_sq,
+                        seed=seed + 27, min_one_per_group=m1,
+                        meanK_rff_dim=min(512, rff_dim), unique=True),
+            "PKKN": lambda: baseline_kkmeans_nystrom_quota(
+                        Xs, geo=geo, k=k, alpha_geo=ag, seed=seed + 28,
+                        sigma_sq=sigma_sq, min_one_per_group=m1),
+        }
+
+    def _build_joint_quota_methods(
+        self, Xs, Phi, geo, k, sigma_sq, seed,
+    ) -> Dict[str, Callable]:
+        """Build joint-constrained baselines (J-prefix).
+
+        These baselines must satisfy *both* population-share and
+        municipality-share quota constraints.  The initial selection uses
+        population-share quotas; the projection step in ``run_all``
+        enforces both constraints (see ``joint_quota`` regime handling).
+        """
+        from . import (
+            baseline_uniform_quota, baseline_kmeans_reps_quota,
+            baseline_kernel_herding_quota, baseline_farthest_first_quota,
+            baseline_rls_quota, baseline_dpp_quota,
+            baseline_kernel_thinning_quota,
+            baseline_kkmeans_nystrom_quota,
+        )
+        ag = self.alpha_geo
+        m1 = self.min_one
+        rff_dim = self.rff_dim
+        return {
+            "JU":   lambda: baseline_uniform_quota(
+                        geo=geo, k=k, alpha_geo=ag, seed=seed + 31),
+            "JKM":  lambda: baseline_kmeans_reps_quota(
+                        Xs, geo=geo, k=k, alpha_geo=ag, seed=seed + 32,
+                        min_one_per_group=m1),
+            "JKH":  lambda: baseline_kernel_herding_quota(
+                        Xs, Phi=Phi, geo=geo, k=k, alpha_geo=ag, seed=seed + 33,
+                        min_one_per_group=m1),
+            "JFF":  lambda: baseline_farthest_first_quota(
+                        Xs, geo=geo, k=k, alpha_geo=ag, seed=seed + 34,
+                        min_one_per_group=m1),
+            "JRLS": lambda: baseline_rls_quota(
+                        Xs, Phi=Phi, geo=geo, k=k, alpha_geo=ag, seed=seed + 35,
+                        min_one_per_group=m1),
+            "JDPP": lambda: baseline_dpp_quota(
+                        Xs, Phi=Phi, geo=geo, k=k, alpha_geo=ag, seed=seed + 36,
+                        min_one_per_group=m1),
+            "JKT":  lambda: baseline_kernel_thinning_quota(
+                        Xs, geo=geo, k=k, alpha_geo=ag, sigma_sq=sigma_sq,
+                        seed=seed + 37, min_one_per_group=m1,
+                        meanK_rff_dim=min(512, rff_dim), unique=True),
+            "JKKN": lambda: baseline_kkmeans_nystrom_quota(
+                        Xs, geo=geo, k=k, alpha_geo=ag, seed=seed + 38,
                         sigma_sq=sigma_sq, min_one_per_group=m1),
         }
