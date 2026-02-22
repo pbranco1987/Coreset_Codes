@@ -252,7 +252,9 @@ def main():
     _stage_times: Dict[str, List[float]] = {
         "geo": [], "nystrom": [], "kpi": [], "multi": [], "qos": [],
     }
+    _stages_order = ["geo", "nystrom", "kpi", "multi", "qos"]
     _eval_count = [0]  # mutable counter in closure
+    _combo_t0 = [0.0]  # start time of current combo's evaluation
 
     def _stage_est(key: str) -> str:
         """Return estimated time string from running average, or empty."""
@@ -271,27 +273,62 @@ def main():
             return f"done ({dt:.1f}s, avg {avg:.1f}s over {n} combos)"
         return f"done ({dt:.1f}s)"
 
-    def _eval_eta() -> str:
-        """Estimate remaining evaluation time for this job."""
-        done = _eval_count[0]
-        remaining = total_combos - done
-        if done == 0 or remaining <= 0:
-            return ""
-        # Sum average stage times to estimate per-combo eval time
-        avg_per_combo = 0.0
-        for key in _stage_times:
-            times = _stage_times[key]
+    def _show_eta(stage_idx: int):
+        """Print ETA after every stage — the main progress indicator."""
+        combo_num = _eval_count[0]
+        combo_elapsed = time.perf_counter() - _combo_t0[0]
+        stages_done = stage_idx + 1
+        remaining_combos = total_combos - combo_num
+
+        # Estimate remaining time for this combo's unfinished stages
+        remaining_this_combo = 0.0
+        can_estimate = True
+        for i in range(stages_done, len(_stages_order)):
+            key = _stages_order[i]
+            times = _stage_times.get(key, [])
             if times:
-                avg_per_combo += sum(times) / len(times)
-        if avg_per_combo <= 0:
-            return ""
-        eta = remaining * avg_per_combo
-        return f" | Eval ETA: ~{_fmt_duration(eta)} for {remaining} remaining combos"
+                remaining_this_combo += sum(times) / len(times)
+            else:
+                can_estimate = False
+                break
+
+        if not can_estimate:
+            # First combo, stages we haven't seen yet — extrapolate
+            if stages_done > 0:
+                est_full_combo = combo_elapsed * len(_stages_order) / stages_done
+                remaining_this_combo = est_full_combo - combo_elapsed
+            else:
+                return
+
+        # Best per-combo estimate for remaining combos
+        completed_combos = combo_num - 1
+        if completed_combos > 0:
+            avg_full_combo = sum(
+                sum(times) / len(times)
+                for times in _stage_times.values() if times
+            )
+        else:
+            avg_full_combo = combo_elapsed + remaining_this_combo
+
+        job_remaining = remaining_this_combo + remaining_combos * avg_full_combo
+        job_total_est = (time.perf_counter() - _T0_GLOBAL) + job_remaining
+        pct = combo_num * 100 // total_combos if stages_done == len(_stages_order) else (
+            ((combo_num - 1) * len(_stages_order) + stages_done) * 100
+            // (total_combos * len(_stages_order))
+        )
+
+        jl = f" {job_label}" if job_label else ""
+        print(f"{_elapsed()}          "
+              f">>>>{jl} ETA: ~{_fmt_duration(job_remaining)} remaining | "
+              f"combo {combo_num}/{total_combos} stage {stages_done}/5 | "
+              f"~{_fmt_duration(job_total_est)} total | {pct}% complete",
+              flush=True)
 
     def evaluate_coreset(idx_sel: np.ndarray) -> Dict[str, Any]:
         """Full evaluation pipeline matching R10's _evaluate_coreset."""
         _eval_count[0] += 1
         combo_num = _eval_count[0]
+        _combo_t0[0] = time.perf_counter()
         idx_sel = np.asarray(idx_sel, dtype=int)
         row: Dict[str, Any] = {}
 
@@ -303,6 +340,7 @@ def main():
         row.update(geo_all)
         dt_stage = time.perf_counter() - t_stage
         print(f"{_stage_record('geo', dt_stage)} {_elapsed()}", flush=True)
+        _show_eta(0)
 
         # [2/5] Nystrom + KRR + stability
         print(f"{_elapsed()}          [2/5] Nystrom + KRR + stability{_stage_est('nystrom')}...",
@@ -315,6 +353,7 @@ def main():
             row.update(raw_evaluator.all_metrics(idx_sel))
         dt_stage = time.perf_counter() - t_stage
         print(f"{_stage_record('nystrom', dt_stage)} {_elapsed()}", flush=True)
+        _show_eta(1)
 
         # [3/5] KPI stability
         print(f"{_elapsed()}          [3/5] KPI stability{_stage_est('kpi')}...",
@@ -335,6 +374,7 @@ def main():
                 print(f"skipped ({dt_stage:.1f}s): {e} {_elapsed()}", flush=True)
         else:
             print(f"skipped (no state labels) {_elapsed()}", flush=True)
+        _show_eta(2)
 
         # [4/5] Multi-model downstream
         print(f"{_elapsed()}          [4/5] Multi-model ({total_model_fits} fits)"
@@ -357,6 +397,7 @@ def main():
                 print(f"FAILED ({dt_stage:.1f}s): {e} {_elapsed()}", flush=True)
         else:
             print(f"skipped (no targets) {_elapsed()}", flush=True)
+        _show_eta(3)
 
         # [5/5] QoS downstream
         print(f"{_elapsed()}          [5/5] QoS downstream (3 models)"
@@ -396,10 +437,7 @@ def main():
         except Exception as e:
             dt_stage = time.perf_counter() - t_stage
             print(f"skipped ({dt_stage:.1f}s): {e} {_elapsed()}", flush=True)
-
-        # Per-combo evaluation summary
-        print(f"{_elapsed()}          Eval {combo_num}/{total_combos} complete"
-              f"{_eval_eta()}", flush=True)
+        _show_eta(4)
 
         return row
 
