@@ -241,9 +241,12 @@ def evaluate_all_downstream_models(
     if n_workers > 1 and total_tasks >= 3:
         from joblib import Parallel, delayed
 
+        n_reg_models = len(_regression_models(seed))
+        n_cls_models = len(_classification_models(seed))
+        n_fits = n_reg_models * n_reg + n_cls_models * n_cls
         print(
             f"              parallel: {n_reg} reg + {n_cls} cls targets, "
-            f"{n_workers} workers...",
+            f"{n_fits} model fits, {n_workers} workers...",
             end=" ", flush=True,
         )
         _t0 = _time.perf_counter()

@@ -73,10 +73,17 @@ def main():
     results_dir = os.path.join(args.output_dir, regime, f"k{k}", rep_label, "results")
     os.makedirs(results_dir, exist_ok=True)
 
+    t_global_start = time.perf_counter()
+
+    n_methods = 8  # U, KM, KH, FF, RLS, DPP, KT, KKN
+    n_spaces_req = len(requested_spaces)
+    total_combos = n_methods * n_spaces_req
+
     print("=" * 70)
     print(f"  Pop/Joint Baseline Driver")
     print(f"  regime={regime}  k={k}  rep={rep_id}  seed={rep_seed}")
     print(f"  spaces={requested_spaces}")
+    print(f"  combos={n_methods} methods x {n_spaces_req} spaces = {total_combos}")
     print(f"  cache={args.cache_dir}")
     print(f"  output={results_dir}")
     print("=" * 70)
@@ -167,22 +174,50 @@ def main():
     # ----------------------------------------------------------------
     # 4. Build evaluation function (mirrors _evaluate_coreset)
     # ----------------------------------------------------------------
+    n_reg_targets = len(extra_reg_targets)
+    n_cls_targets = len(cls_targets)
+    n_reg_models = 3   # KNN, RF, GBT
+    n_cls_models = 4   # KNN, RF, LR, GBT
+    total_model_fits = n_reg_models * n_reg_targets + n_cls_models * n_cls_targets
+
+    print(f"\n  Evaluation pipeline per method-space combo:")
+    print(f"    [c] Geo diagnostics")
+    print(f"    [d] Nystrom + KRR + state-stability")
+    print(f"    [e] KPI stability")
+    print(f"    [f] Multi-model downstream: "
+          f"{n_reg_models} reg models x {n_reg_targets} targets + "
+          f"{n_cls_models} cls models x {n_cls_targets} targets "
+          f"= {total_model_fits} model fits")
+    print(f"    [g] QoS downstream: 3 models (OLS, Ridge, ElasticNet)")
+
     def evaluate_coreset(idx_sel: np.ndarray) -> Dict[str, Any]:
         """Full evaluation pipeline matching R10's _evaluate_coreset."""
         idx_sel = np.asarray(idx_sel, dtype=int)
         row: Dict[str, Any] = {}
 
-        # [1/5] Geographic diagnostics
+        # [c] Geographic diagnostics
+        print(f"         [c] Geo diagnostics...", end=" ", flush=True)
+        t_stage = time.perf_counter()
         geo_all = dual_geo_diagnostics(geo, idx_sel, k, alpha=alpha_geo)
         row.update(geo_all)
+        dt_stage = time.perf_counter() - t_stage
+        print(f"done ({dt_stage:.1f}s)", flush=True)
 
-        # [2/5] Nystrom + KRR + stability
+        # [d] Nystrom + KRR + stability
+        print(f"         [d] Nystrom + KRR + state-stability...",
+              end=" ", flush=True)
+        t_stage = time.perf_counter()
         if state_labels is not None:
-            row.update(raw_evaluator.all_metrics_with_state_stability(idx_sel, state_labels))
+            row.update(raw_evaluator.all_metrics_with_state_stability(
+                idx_sel, state_labels))
         else:
             row.update(raw_evaluator.all_metrics(idx_sel))
+        dt_stage = time.perf_counter() - t_stage
+        print(f"done ({dt_stage:.1f}s)", flush=True)
 
-        # [3/5] KPI stability
+        # [e] KPI stability
+        print(f"         [e] KPI stability...", end=" ", flush=True)
+        t_stage = time.perf_counter()
         if state_labels is not None and raw_evaluator.y is not None:
             try:
                 kpi_stab = state_kpi_stability(
@@ -191,10 +226,18 @@ def main():
                     S_idx=idx_sel,
                 )
                 row.update(kpi_stab)
-            except Exception:
-                pass
+                dt_stage = time.perf_counter() - t_stage
+                print(f"done ({dt_stage:.1f}s)", flush=True)
+            except Exception as e:
+                dt_stage = time.perf_counter() - t_stage
+                print(f"skipped ({dt_stage:.1f}s): {e}", flush=True)
+        else:
+            print(f"skipped (no state labels)", flush=True)
 
-        # [4/5] Multi-model downstream
+        # [f] Multi-model downstream
+        print(f"         [f] Multi-model ({total_model_fits} fits)...",
+              end=" ", flush=True)
+        t_stage = time.perf_counter()
         if extra_reg_targets or cls_targets:
             try:
                 multi_metrics = raw_evaluator.multi_model_downstream(
@@ -204,10 +247,18 @@ def main():
                     seed=rep_seed,
                 )
                 row.update(multi_metrics)
+                dt_stage = time.perf_counter() - t_stage
+                print(f"done ({dt_stage:.1f}s)", flush=True)
             except Exception as e:
-                print(f"      [warn] multi-model failed: {e}")
+                dt_stage = time.perf_counter() - t_stage
+                print(f"FAILED ({dt_stage:.1f}s): {e}", flush=True)
+        else:
+            print(f"skipped (no targets)", flush=True)
 
-        # [5/5] QoS downstream
+        # [g] QoS downstream
+        print(f"         [g] QoS downstream (3 models)...",
+              end=" ", flush=True)
+        t_stage = time.perf_counter()
         try:
             from coreset_selection.evaluation.qos_tasks import QoSConfig, qos_coreset_evaluation
 
@@ -236,8 +287,11 @@ def main():
                 config=qos_cfg,
             )
             row.update(qos_metrics)
+            dt_stage = time.perf_counter() - t_stage
+            print(f"done ({dt_stage:.1f}s)", flush=True)
         except Exception as e:
-            print(f"      [warn] QoS failed: {e}")
+            dt_stage = time.perf_counter() - t_stage
+            print(f"skipped ({dt_stage:.1f}s): {e}", flush=True)
 
         return row
 
@@ -268,16 +322,21 @@ def main():
     )
 
     print(f"\n[5/5] Running {regime} baselines (k={k})...")
+    print(f"  Total: {total_combos} method-space combos, each with 5-stage eval")
     t0_run = time.perf_counter()
 
     rows = gen.run_all(
         spaces=spaces,
         evaluator_fn=evaluate_coreset,
         regimes=[regime],
+        verbose=True,
     )
 
     dt_run = time.perf_counter() - t0_run
-    print(f"\n  Completed {len(rows)} method×space combinations ({dt_run:.1f}s)")
+    dt_run_m, dt_run_s = divmod(int(dt_run), 60)
+    dt_run_h, dt_run_m = divmod(dt_run_m, 60)
+    print(f"\n  Completed {len(rows)} method-space combos in "
+          f"{dt_run_h}h{dt_run_m:02d}m{dt_run_s:02d}s")
 
     # ----------------------------------------------------------------
     # 6. Save results
@@ -302,9 +361,12 @@ def main():
     else:
         print("\n  [WARN] No rows produced!")
 
-    total_time = time.perf_counter() - t0
+    total_time = time.perf_counter() - t_global_start
+    total_m, total_s = divmod(int(total_time), 60)
+    total_h, total_m = divmod(total_m, 60)
     print(f"\n{'=' * 70}")
-    print(f"  DONE  regime={regime} k={k} rep={rep_id} ({total_time:.0f}s total)")
+    print(f"  DONE  regime={regime} k={k} rep={rep_id}")
+    print(f"  Total time: {total_h}h{total_m:02d}m{total_s:02d}s ({total_time:.0f}s)")
     print(f"{'=' * 70}")
 
 
