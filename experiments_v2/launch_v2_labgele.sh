@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ============================================================================
-# LABGELE — v2 Full Experiment Launch (tmux, 205 jobs)
+# LABGELE — v2 Full Experiment Launch (tmux, 230 jobs)
 #
 # Creates a tmux session "v2_labgele" with one window per job.
 # Navigate windows: Ctrl+B,N (next) / Ctrl+B,P (prev) / Ctrl+B,W (list)
@@ -12,8 +12,8 @@
 #   Block 4: N_v     — 5 constraints x 5 reps = 25 windows
 #   Block 5: N_r     — 7 constraints x 5 reps = 35 windows
 #   Block 6: N_p     — 7 constraints x 5 reps = 35 windows
-#   Block 7: T_eff   — 5 reps (each sweeps 6 effort levels internally) = 5 windows
-#                                                           Total: 205 windows
+#   Block 7: T_eff   — 6 effort levels x 5 reps = 30 windows
+#                                                           Total: 230 windows
 #
 # Seeds: base seed 2026, reps 0-4 -> seeds 2026-2030
 # Cache: replicate_cache_seed2026
@@ -43,7 +43,7 @@ TORCHDYNAMO_DISABLE=1 TORCH_COMPILE_DISABLE=1"
 tmux kill-session -t "$SESSION" 2>/dev/null || true
 
 echo "============================================================"
-echo "  LABGELE — v2 Full Experiment Launch (205 jobs)"
+echo "  LABGELE — v2 Full Experiment Launch (230 jobs)"
 echo "  Session: $SESSION"
 echo "  Seed: $SEED   Cache: $CACHE_DIR   Output: $OUTPUT_DIR"
 echo "============================================================"
@@ -134,11 +134,15 @@ for C in 0 ph mh ms hh sh hs; do
 done
 
 # ================================================================
-# BLOCK 7: T_eff — Effort sweep (5 jobs, each sweeps 6 levels)
+# BLOCK 7: T_eff — Effort sweep, 6 levels x 5 reps (30 jobs)
+#   Levels: e1=(20,100) e2=(50,300) e3=(100,500)
+#           e4=(150,700) e5=(200,1000) e6=(300,1500)
 # ================================================================
-echo "[Block 7] T_eff: 5 reps = 5 jobs..."
-for R in "${REPS[@]}"; do
-  launch_window "T_eff_r${R}" "T_eff" "-k 100 --rep-ids $R"
+echo "[Block 7] T_eff: 6 effort levels x 5 reps = 30 jobs..."
+for E in 1 2 3 4 5 6; do
+  for R in "${REPS[@]}"; do
+    launch_window "T_eff_e${E}_r${R}" "T_eff" "-k 100 --rep-ids $R --effort-level $E"
+  done
 done
 
 # ================================================================
@@ -151,4 +155,4 @@ echo "  Navigate:  Ctrl+B,N (next) / Ctrl+B,P (prev)"
 echo "  List:      Ctrl+B,W (window picker)"
 echo "============================================================"
 
-echo "All 205 windows launched."
+echo "All 230 windows launched."

@@ -483,6 +483,15 @@ def cmd_scenario(args: argparse.Namespace) -> int:
         r for k in k_values for r in _rep_ids_for_k(k)
     ))
 
+    # Dimension override (for T_vdim / T_pdim single-dimension runs)
+    dim_override = getattr(args, "dim_override", None)
+
+    # Effort level override (for T_eff single-level runs)
+    effort_level = getattr(args, "effort_level", None)
+    if effort_level is not None:
+        import os
+        os.environ["CORESET_EFFORT_LEVEL"] = str(int(effort_level))
+
     # Special handling: R6 depends on outputs from prior runs.
     if run_id == "R6":
         import os
@@ -531,7 +540,7 @@ def cmd_scenario(args: argparse.Namespace) -> int:
         for rep in _rep_ids_for_k(k):
             print(f"[scenario] {run_name} rep={rep} ({n_done+1}/{n_total})")
             try:
-                cfg0 = apply_run_spec(base_cfg, spec, rep)
+                cfg0 = apply_run_spec(base_cfg, spec, rep, dim_override=dim_override)
                 cfg = replace(
                     cfg0,
                     run_id=run_name,

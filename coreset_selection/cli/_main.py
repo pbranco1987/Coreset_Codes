@@ -85,6 +85,11 @@ def main() -> int:
     scenario_parser.add_argument("--seed", type=int, default=123)
     scenario_parser.add_argument("--device", default="cpu")
     scenario_parser.add_argument("--fail-fast", action="store_true")
+    # Granular job control (v2 experiments)
+    scenario_parser.add_argument("--dim-override", type=int, default=None,
+                                 help="Override VAE/PCA dimension (e.g., --dim-override 8 for T_vdim)")
+    scenario_parser.add_argument("--effort-level", type=int, default=None,
+                                 help="Run a single effort level 1-6 (for T_eff). Omit to sweep all.")
     # R6 extras
     scenario_parser.add_argument("--source-run", default="R1", help="(R6) Source run base ID")
     scenario_parser.add_argument("--source-space", default="vae", help="(R6) Source space: vae|pca|raw")

@@ -1217,6 +1217,15 @@ def get_run_specs() -> Dict[str, RunSpec]:
         if _old_name in specs:
             specs[_v2_name] = replace(specs[_old_name], run_id=_v2_name)
 
+    # -- Per-space diagnostics: D_vae, D_raw, D_pca ----
+    if "R11" in specs:
+        specs["D_vae"] = replace(specs["R11"], run_id="D_vae", space="vae",
+                                 requires_vae=True, requires_pca=False)
+        specs["D_raw"] = replace(specs["R11"], run_id="D_raw", space="raw",
+                                 requires_vae=False, requires_pca=False)
+        specs["D_pca"] = replace(specs["R11"], run_id="D_pca", space="pca",
+                                 requires_vae=False, requires_pca=True)
+
     # -- Dedup aliases: v2 grid cells served by K-sweep or A-ablation --
     # These need sweep_k=(100,) override so they only run k=100 when
     # invoked directly, unlike the K-sweep parent which runs all K_GRID.

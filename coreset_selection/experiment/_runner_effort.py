@@ -60,6 +60,17 @@ class EffortMixin:
             grid = cfg.solver.effort_grid.grid()
             print(f"[R12] Effort grid from config: {grid}", flush=True)
 
+        # ---- Optional: run only a single effort level ----
+        # CORESET_EFFORT_LEVEL env var selects one level (1-indexed)
+        _effort_level = os.environ.get("CORESET_EFFORT_LEVEL")
+        if _effort_level is not None:
+            idx = int(_effort_level) - 1  # 1-indexed → 0-indexed
+            if 0 <= idx < len(grid):
+                grid = [grid[idx]]
+                print(f"[R12] Single effort level {_effort_level}: {grid[0]}", flush=True)
+            else:
+                print(f"[R12] WARNING: effort level {_effort_level} out of range (1-{len(grid)}), running all", flush=True)
+
         # Build objective computer
         with timer.section("build_objective_computers", space=cfg.space):
             computers = self._build_objective_computers(assets, seed)

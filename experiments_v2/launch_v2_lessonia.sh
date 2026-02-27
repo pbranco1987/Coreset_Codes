@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ============================================================================
-# LESSONIA — v2 Full Experiment Launch (tmux, 163 jobs)
+# LESSONIA — v2 Full Experiment Launch (tmux, 185 jobs)
 #
 # Creates a tmux session "v2_lessonia" with one window per job.
 # Each window runs a single `python3 -m coreset_selection scenario` call.
@@ -11,10 +11,10 @@
 #   B_v (Baselines, VAE):      8 constraints × 5 reps           =  40 windows
 #   B_r (Baselines, RAW):      8 constraints × 5 reps           =  40 windows
 #   B_p (Baselines, PCA):      8 constraints × 5 reps           =  40 windows
-#   T_vdim (VAE dim sweep):    1 × 5 reps                       =   5 windows
-#   T_pdim (PCA dim sweep):    1 × 5 reps                       =   5 windows
-#   D  (Diagnostics):          1 × 1 rep                        =   1 window
-#                                                         Total = 163 windows
+#   T_vdim (VAE dim sweep):    3 dims × 5 reps                  =  15 windows
+#   T_pdim (PCA dim sweep):    3 dims × 5 reps                  =  15 windows
+#   D  (Diagnostics):          3 spaces                          =   3 windows
+#                                                         Total = 185 windows
 #
 # Seeds: base 2026, reps 0-4 -> effective seeds 2026-2030
 # K_GRID = (30, 50, 100, 200, 300, 400, 500)
@@ -37,6 +37,12 @@ OUTPUT_DIR="experiments_v2"
 # Kill existing session if any
 tmux kill-session -t "$SESSION" 2>/dev/null || true
 
+echo "============================================================"
+echo "  LESSONIA — v2 Full Experiment Launch (185 jobs)"
+echo "  Session: $SESSION"
+echo "  Seed: $SEED   Cache: $CACHE_DIR   Output: $OUTPUT_DIR"
+echo "============================================================"
+
 WIN=0
 
 # ────────────────────────────────────────────────────────────────
@@ -46,7 +52,8 @@ make_cmd() {
   local run_id="$1"
   local k="$2"
   local rep="$3"
-  echo "cd ~/Coreset_Codes && source venv/bin/activate && python3 -m coreset_selection scenario --run-id ${run_id} -k ${k} --seed ${SEED} --rep-ids ${rep} --cache-dir ${CACHE_DIR} --output-dir ${OUTPUT_DIR}; echo 'DONE'; read"
+  local extra="${4:-}"
+  echo "cd ~/Coreset_Codes && source venv/bin/activate && python3 -m coreset_selection scenario --run-id ${run_id} -k ${k} --seed ${SEED} --rep-ids ${rep} --cache-dir ${CACHE_DIR} --output-dir ${OUTPUT_DIR} ${extra}; echo 'DONE'; read"
 }
 
 # ────────────────────────────────────────────────────────────────
@@ -117,29 +124,37 @@ for CONSTRAINT in 0 ps ph ms mh hh sh hs; do
 done
 
 # ================================================================
-# BLOCK 6: T_vdim (VAE dim sweep) — 5 reps (each sweeps d=8,16,64)
+# BLOCK 6: T_vdim (VAE dim sweep) — 3 dims × 5 reps = 15 windows
+#   d=8, d=16, d=64 (d=32 is the control served by K_vae@k=100)
 # ================================================================
-echo "[Block 6] T_vdim: VAE dim sweep (5 windows)..."
-for REP in 0 1 2 3 4; do
-  WNAME="T_vdim_r${REP}"
-  launch "$WNAME" "$(make_cmd T_vdim 100 $REP)"
+echo "[Block 6] T_vdim: VAE dim sweep, 3 dims x 5 reps = 15 windows..."
+for D in 8 16 64; do
+  for REP in 0 1 2 3 4; do
+    WNAME="T_vdim_d${D}_r${REP}"
+    launch "$WNAME" "$(make_cmd T_vdim 100 $REP "--dim-override $D")"
+  done
 done
 
 # ================================================================
-# BLOCK 7: T_pdim (PCA dim sweep) — 5 reps (each sweeps d=8,16,64)
+# BLOCK 7: T_pdim (PCA dim sweep) — 3 dims × 5 reps = 15 windows
+#   d=8, d=16, d=64 (d=32 is the control served by K_pca@k=100)
 # ================================================================
-echo "[Block 7] T_pdim: PCA dim sweep (5 windows)..."
-for REP in 0 1 2 3 4; do
-  WNAME="T_pdim_r${REP}"
-  launch "$WNAME" "$(make_cmd T_pdim 100 $REP)"
+echo "[Block 7] T_pdim: PCA dim sweep, 3 dims x 5 reps = 15 windows..."
+for D in 8 16 64; do
+  for REP in 0 1 2 3 4; do
+    WNAME="T_pdim_d${D}_r${REP}"
+    launch "$WNAME" "$(make_cmd T_pdim 100 $REP "--dim-override $D")"
+  done
 done
 
 # ================================================================
-# BLOCK 8: D (Diagnostics) — 1 window
+# BLOCK 8: D (Diagnostics) — 3 spaces = 3 windows
 # ================================================================
-echo "[Block 8] D: Diagnostics (1 window)..."
-WNAME="D"
-launch "$WNAME" "$(make_cmd D 100 0)"
+echo "[Block 8] D: Diagnostics, 3 spaces = 3 windows..."
+for SPACE in vae raw pca; do
+  WNAME="D_${SPACE}"
+  launch "$WNAME" "$(make_cmd D_${SPACE} 100 0)"
+done
 
 # ================================================================
 echo ""
@@ -152,4 +167,4 @@ echo "  Attach:    tmux attach -t $SESSION"
 echo "  Navigate:  Ctrl+B,N (next) / Ctrl+B,P (prev)"
 echo "  List:      Ctrl+B,W (window picker)"
 echo "============================================================"
-echo "All 163 windows launched."
+echo "All 185 windows launched."
