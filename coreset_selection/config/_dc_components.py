@@ -198,6 +198,14 @@ class VAEConfig:
     torch_threads: int = 4
     torch_interop_threads: int = 4
 
+    # Mixed-type likelihood VAE (product-of-likelihoods decoder).
+    # When True (and column metadata is available), the decoder uses
+    # Gaussian NLL for continuous, BCE for binary, and CE for multi-class
+    # categorical columns instead of a uniform MSE loss.
+    use_mixed_likelihood: bool = True
+    kl_warmup_epochs: int = 150   # Linear KL warmup from 0 → kl_weight
+    cat_embedding_dim: int = 16   # Embedding dim for K>2 categoricals
+
 
 @dataclass
 class GeoConfig:
@@ -225,9 +233,14 @@ class GeoConfig:
     # ------------------------------------------------------------------
     # Proportionality constraint modes (manuscript Section IV-B)
     # ------------------------------------------------------------------
-    # - population_share: weights w_i = pop_i (PRIMARY constraint)
-    # - municipality_share_quota: count quota c*(k) (w_i = 1, quota mode)
-    # - joint: both population-share and municipality-share quota
+    # - population_share:       w_i = pop_i, SOFT KL constraint (PRIMARY)
+    # - population_share_quota: w_i = pop_i, HARD deterministic quota
+    #       (same mechanism as baselines' pop_quota regime — fair geo comparison)
+    # - municipality_share:     w_i = 1, SOFT KL constraint
+    # - municipality_share_quota: w_i = 1, HARD count-based quota
+    # - joint:            both pop-share AND muni-share, HARD+HARD (two-pass)
+    # - joint_soft_hard:  pop-share SOFT + muni-share HARD (mixed joint)
+    # - joint_hard_soft:  pop-share HARD + muni-share SOFT (mixed joint)
     # - none: no proportionality constraints (exact-k only)
     constraint_mode: str = "population_share"
 
@@ -291,6 +304,26 @@ class MMDConfig:
     """
     rff_dim: int = 2000
     bandwidth_mult: float = 1.0
+
+
+@dataclass
+class NystromLogDetConfig:
+    """
+    Nystrom log-determinant diversity objective configuration.
+
+    When enabled, the log-determinant of the RBF kernel sub-matrix
+    K_{S,S} + lambda*I is used as an additional diversity objective that
+    encourages well-conditioned landmark configurations.
+
+    Attributes
+    ----------
+    enabled : bool
+        Whether to include the Nystrom log-det objective
+    reg : float
+        Tikhonov regularisation lambda for K_{S,S} + lambda*I
+    """
+    enabled: bool = False
+    reg: float = 1e-6
 
 
 @dataclass

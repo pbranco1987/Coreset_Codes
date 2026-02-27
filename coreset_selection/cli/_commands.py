@@ -169,7 +169,7 @@ def cmd_parallel(args: argparse.Namespace) -> int:
 
     runs = args.runs
     if not runs or runs == ['all']:
-        runs = [f'r{i}' for i in range(15)]  # r0-r14
+        runs = [f'r{i}' for i in range(16)]  # r0-r15
 
     n_cores = multiprocessing.cpu_count()
     n_jobs = len(runs)
@@ -579,7 +579,7 @@ def cmd_all(args: argparse.Namespace) -> int:
     """
     Run ALL experiment configurations sequentially (r0-r14).
     """
-    runs = [f'r{i}' for i in range(15)]  # Always r0-r14
+    runs = [f'r{i}' for i in range(16)]  # Always r0-r15
     return _run_sequential(runs, args)
 
 

@@ -5,6 +5,7 @@ This module provides distributional divergence measures:
 - SKL: Symmetric KL divergence for diagonal Gaussians
 - MMD²: Maximum Mean Discrepancy via Random Fourier Features
 - Sinkhorn: Sinkhorn divergence via anchor approximation
+- NystromLogDet: Log-determinant diversity via Nystrom kernel sub-matrix
 
 And a unified interface:
 - SpaceObjectiveComputer: Computes all objectives efficiently
@@ -21,6 +22,8 @@ from .mmd import (
     compute_rff_features,
     mmd2_exact,
 )
+
+from .nystrom_logdet import NystromLogDet
 
 from .sinkhorn import (
     AnchorSinkhorn,
@@ -41,6 +44,8 @@ __all__ = [
     "RFFMMD",
     "compute_rff_features",
     "mmd2_exact",
+    # Nystrom log-det
+    "NystromLogDet",
     # Sinkhorn
     "AnchorSinkhorn",
     "sinkhorn2_safe",

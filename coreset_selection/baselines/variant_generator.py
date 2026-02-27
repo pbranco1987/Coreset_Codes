@@ -116,9 +116,10 @@ class BaselineVariantGenerator:
         save_indices_fn : callable, optional
             ``f(name, indices, metadata)``.  Called to persist each coreset.
         regimes : list of str, optional
-            Which regimes to run.  Defaults to ``["exactk", "quota"]`` for
-            backward compatibility.  Supported values:
-            ``"exactk"``, ``"quota"``, ``"pop_quota"``, ``"joint_quota"``.
+            Which regimes to run.  Defaults to ``["exactk", "muni_quota"]``.
+            Supported values:
+            ``"exactk"``, ``"muni_quota"``, ``"pop_quota"``, ``"joint_quota"``.
+            Legacy ``"quota"`` is accepted as an alias for ``"muni_quota"``.
         verbose : bool
             If True (default), emit detailed per-combo progress with timing
             and ETA information.
@@ -135,7 +136,7 @@ class BaselineVariantGenerator:
         from ..geo.projector import GeographicConstraintProjector
 
         if regimes is None:
-            regimes = ["exactk", "quota"]
+            regimes = ["exactk", "muni_quota"]
 
         rows: List[Dict[str, Any]] = []
         seed = self.seed
@@ -144,7 +145,7 @@ class BaselineVariantGenerator:
 
         # ── Count total combos for progress tracking ──
         n_spaces = len(spaces)
-        n_regimes_active = sum(1 for r in regimes if r in ("exactk", "quota", "pop_quota", "joint_quota"))
+        n_regimes_active = sum(1 for r in regimes if r in ("exactk", "quota", "muni_quota", "pop_quota", "joint_quota"))
         methods_per_regime = 8  # U, KM, KH, FF, RLS, DPP, KT, KKN
         total_combos = n_spaces * n_regimes_active * methods_per_regime
         combo_idx = 0
@@ -163,7 +164,7 @@ class BaselineVariantGenerator:
 
         def _get_projector(regime: str) -> GeographicConstraintProjector:
             if regime not in _projectors:
-                if regime in ("exactk", "quota"):
+                if regime in ("exactk", "quota", "muni_quota"):
                     _projectors[regime] = self.projector
                 elif regime == "pop_quota":
                     _projectors[regime] = GeographicConstraintProjector(
@@ -225,11 +226,11 @@ class BaselineVariantGenerator:
                 )
                 regime_methods.append(("exactk", exact_methods))
 
-            if "quota" in regimes:
+            if "muni_quota" in regimes or "quota" in regimes:
                 quota_methods = self._build_quota_methods(
                     Xs, Phi, geo, k, sigma_sq, seed,
                 )
-                regime_methods.append(("quota", quota_methods))
+                regime_methods.append(("muni_quota", quota_methods))
 
             if "pop_quota" in regimes:
                 pop_methods = self._build_pop_quota_methods(
@@ -299,7 +300,7 @@ class BaselineVariantGenerator:
                         mask = self.projector.project_to_exact_k_mask(
                             mask, k=k, rng=self.rng,
                         )
-                    elif regime == "quota":
+                    elif regime in ("quota", "muni_quota"):
                         mask = self.projector.project_to_quota_mask(
                             mask, k=k, rng=self.rng,
                         )
@@ -367,7 +368,7 @@ class BaselineVariantGenerator:
                     # Choose quota vector for metadata
                     if regime == "pop_quota":
                         qv = quota_vector_pop
-                    elif regime in ("quota", "joint_quota"):
+                    elif regime in ("quota", "muni_quota", "joint_quota"):
                         qv = quota_vector_muni
                     else:
                         qv = None

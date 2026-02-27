@@ -13,6 +13,7 @@ from typing import Dict, Optional
 import numpy as np
 
 from .mmd import RFFMMD
+from .nystrom_logdet import NystromLogDet
 from .sinkhorn import AnchorSinkhorn
 from .skl import symmetric_kl_diag_gaussians
 from ..utils.debug_timing import timer
@@ -22,11 +23,11 @@ from ..utils.debug_timing import timer
 class SpaceObjectiveComputer:
     """
     Unified objective computer for a representation space.
-    
-    Computes all three objectives (SKL, MMD², Sinkhorn) for a given subset.
-    Pre-computes statistics for the full dataset to enable efficient
+
+    Computes all objectives (SKL, MMD², Sinkhorn, NystromLogDet) for a given
+    subset.  Pre-computes statistics for the full dataset to enable efficient
     subset evaluation.
-    
+
     Attributes
     ----------
     X : np.ndarray
@@ -37,6 +38,8 @@ class SpaceObjectiveComputer:
         RFF-based MMD estimator
     sink : AnchorSinkhorn
         Anchor-based Sinkhorn estimator
+    nystrom_logdet : Optional[NystromLogDet]
+        Nystrom log-determinant diversity estimator (None when disabled)
     mu_full : np.ndarray
         Mean of X over full dataset
     var_full : np.ndarray
@@ -46,6 +49,7 @@ class SpaceObjectiveComputer:
     logvars: Optional[np.ndarray]
     rff: RFFMMD
     sink: AnchorSinkhorn
+    nystrom_logdet: Optional[NystromLogDet]
     mu_full: np.ndarray
     var_full: np.ndarray
 
@@ -55,10 +59,11 @@ class SpaceObjectiveComputer:
         logvars: Optional[np.ndarray],
         rff: RFFMMD,
         sink: AnchorSinkhorn,
+        nystrom_logdet: Optional[NystromLogDet] = None,
     ) -> "SpaceObjectiveComputer":
         """
         Build a SpaceObjectiveComputer.
-        
+
         Parameters
         ----------
         X : np.ndarray
@@ -69,7 +74,9 @@ class SpaceObjectiveComputer:
             Pre-built RFF-based MMD estimator
         sink : AnchorSinkhorn
             Pre-built anchor-based Sinkhorn estimator
-            
+        nystrom_logdet : Optional[NystromLogDet]
+            Pre-built Nystrom log-det estimator, or None if disabled
+
         Returns
         -------
         SpaceObjectiveComputer
@@ -86,7 +93,7 @@ class SpaceObjectiveComputer:
             var_full = var_point.mean(axis=0) + X.astype(np.float64).var(axis=0, ddof=0)
         else:
             var_full = X.astype(np.float64).var(axis=0, ddof=0)
-        
+
         var_full = np.maximum(var_full, 1e-12)
 
         return SpaceObjectiveComputer(
@@ -94,6 +101,7 @@ class SpaceObjectiveComputer:
             logvars=logvars,
             rff=rff,
             sink=sink,
+            nystrom_logdet=nystrom_logdet,
             mu_full=mu_full,
             var_full=var_full,
         )
@@ -211,30 +219,65 @@ class SpaceObjectiveComputer:
         
         return float(sd) if np.isfinite(sd) else 1e18
 
+    def compute_nystrom_logdet(self, idx: np.ndarray) -> float:
+        """
+        Compute Nystrom log-determinant diversity objective for a subset.
+
+        Parameters
+        ----------
+        idx : np.ndarray
+            Indices of the subset
+
+        Returns
+        -------
+        float
+            Negative log-determinant of K_{S,S} + reg*I (lower = more diverse)
+        """
+        idx = np.asarray(idx, dtype=int)
+
+        if idx.size == 0:
+            return 1e18
+
+        if self.nystrom_logdet is None:
+            raise ValueError(
+                "NystromLogDet objective not built. Enable it via "
+                "NystromLogDetConfig(enabled=True)."
+            )
+
+        try:
+            val = self.nystrom_logdet.logdet_subset(idx)
+        except Exception:
+            val = 1e18
+
+        return float(val) if np.isfinite(val) else 1e18
+
     def compute_single(self, idx: np.ndarray, objective: str) -> float:
         """
         Compute a single objective for a subset.
-        
+
         Parameters
         ----------
         idx : np.ndarray
             Indices of the subset
         objective : str
-            Objective name ("skl", "mmd", "mmd2", or "sinkhorn")
-            
+            Objective name ("skl", "mmd", "mmd2", "sinkhorn", or
+            "nystrom_logdet")
+
         Returns
         -------
         float
             Objective value
         """
         objective = objective.lower()
-        
+
         if objective == "skl":
             return self.compute_skl(idx)
         elif objective in ("mmd", "mmd2"):
             return self.compute_mmd2(idx)
         elif objective == "sinkhorn":
             return self.compute_sinkhorn(idx)
+        elif objective == "nystrom_logdet":
+            return self.compute_nystrom_logdet(idx)
         else:
             raise ValueError(f"Unknown objective: {objective}")
 
@@ -245,10 +288,11 @@ def build_space_objective_computer(
     mmd_cfg,  # MMDConfig
     sinkhorn_cfg,  # SinkhornConfig
     seed: int = 0,
+    nystrom_logdet_cfg=None,  # Optional[NystromLogDetConfig]
 ) -> SpaceObjectiveComputer:
     """
     Convenience function to build a SpaceObjectiveComputer from configs.
-    
+
     Parameters
     ----------
     X : np.ndarray
@@ -261,22 +305,24 @@ def build_space_objective_computer(
         Sinkhorn configuration
     seed : int
         Random seed
-        
+    nystrom_logdet_cfg : NystromLogDetConfig or None
+        Nystrom log-det configuration (None or disabled => skip building)
+
     Returns
     -------
     SpaceObjectiveComputer
         Initialized computer
     """
     from ..utils.math import median_sq_dist
-    
+
     with timer.section("build_space_objective_computer", X_shape=X.shape, has_logvars=logvars is not None):
         # Compute bandwidth using median heuristic
-        # Median heuristic for RBF k(x,y)=exp(-||x-y||^2/(2σ^2)) uses σ^2 = median(||x-y||^2)/2.
+        # Median heuristic for RBF k(x,y)=exp(-||x-y||^2/(2sigma^2)) uses sigma^2 = median(||x-y||^2)/2.
         with timer.section("compute_median_sq_dist"):
             sigma_sq = median_sq_dist(X, sample_size=2048, seed=seed) / 2.0
             sigma_sq = sigma_sq * mmd_cfg.bandwidth_mult
         timer.checkpoint("Bandwidth computed", sigma_sq=sigma_sq)
-        
+
         # Build RFF-MMD estimator
         with timer.section("build_RFFMMD", rff_dim=mmd_cfg.rff_dim):
             rff = RFFMMD.build(
@@ -285,7 +331,7 @@ def build_space_objective_computer(
                 sigma_sq=sigma_sq,
                 seed=seed,
             )
-        
+
         # Build anchor Sinkhorn estimator
         with timer.section("build_AnchorSinkhorn", n_anchors=sinkhorn_cfg.n_anchors):
             sink = AnchorSinkhorn.build(
@@ -293,7 +339,17 @@ def build_space_objective_computer(
                 cfg=sinkhorn_cfg,
                 seed=seed + 1,
             )
-        
+
+        # Build Nystrom log-det estimator (optional)
+        nld = None
+        if nystrom_logdet_cfg is not None and getattr(nystrom_logdet_cfg, "enabled", False):
+            with timer.section("build_NystromLogDet"):
+                nld = NystromLogDet.build(
+                    X=X,
+                    sigma_sq=sigma_sq,
+                    reg=nystrom_logdet_cfg.reg,
+                )
+
         # Build unified computer
         with timer.section("build_SpaceObjectiveComputer"):
             computer = SpaceObjectiveComputer.build(
@@ -301,7 +357,8 @@ def build_space_objective_computer(
                 logvars=logvars,
                 rff=rff,
                 sink=sink,
+                nystrom_logdet=nld,
             )
-        
+
         timer.checkpoint("Objective computer ready")
         return computer

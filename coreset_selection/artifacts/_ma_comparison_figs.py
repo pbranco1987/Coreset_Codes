@@ -1016,16 +1016,47 @@ class ComparisonFigsMixin:
                 elif acc_col in d300.columns and d300[acc_col].notna().any():
                     cls_matrix[i, j] = float(d300[acc_col].mean())
 
-        # ---- shorten target names ----
-        def _short(name: str) -> str:
-            return (name.replace("cov_area_", "")
+        # ---- English display labels for targets ----
+        _REG_EN = {
+            "velocidade_mediana_mean": "Median Speed (mean)",
+            "velocidade_mediana_std":  "Median Speed (std)",
+            "pct_limite_mean":         "Speed Cap Ratio (%)",
+            "renda_media_mean":        "Mean Income",
+            "renda_media_std":         "Income Variability",
+            "HHI SMP_2024":            "HHI Mobile",
+            "HHI SCM_2024":            "HHI Fixed",
+            "pct_fibra_backhaul":      "Fiber Backhaul (%)",
+            "pct_escolas_internet":    "Schools w/ Internet",
+            "pct_escolas_fibra":       "Schools w/ Fiber",
+            "Densidade_Banda Larga Fixa_2025": "Broadband Density",
+            "Densidade_Telefonia Móvel_2025":  "Mobile Density",
+            "Densidade_Telefonia Movel_2025":  "Mobile Density",
+        }
+        _CLS_EN = {
+            "concentrated_mobile_market": "Conc. Mobile Mkt",
+            "high_fiber_backhaul":     "High Fiber BH",
+            "high_speed_broadband":    "High-Speed BB",
+            "urbanization_level":      "Urbanization",
+            "broadband_speed_tier":    "BB Speed Tier",
+            "income_tier":             "Income Tier",
+            "income_speed_class":      "Income-Speed",
+            "mobile_penetration_tier": "Mobile Penetration",
+            "infra_density_tier":      "Infra Density",
+            "road_coverage_4g_tier":   "Road 4G Cov.",
+            "has_5g_coverage":         "Has 5G",
+        }
+
+        def _short(name: str, mapping: dict) -> str:
+            if name in mapping:
+                return mapping[name]
+            return (name.replace("cov_area_", "Cov. ")
                         .replace("cov_hh_", "hh_")
                         .replace("cov_res_", "res_")
                         .replace("concentrated_", "conc_")
                         .replace("_", " "))
 
-        reg_labels = [_short(t) for t in reg_targets]
-        cls_labels = [_short(t) for t in cls_targets]
+        reg_labels = [_short(t, _REG_EN) for t in reg_targets]
+        cls_labels = [_short(t, _CLS_EN) for t in cls_targets]
         all_labels = reg_labels + cls_labels
 
         # ---- plot ----

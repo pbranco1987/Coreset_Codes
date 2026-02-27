@@ -2,13 +2,14 @@
 Variational Autoencoder for tabular data.
 
 Contains:
-- TabularVAE: VAE neural network architecture (imported from _vae_networks)
-- VAETrainer: Training and embedding utilities
+- TabularVAE: Legacy MSE-only VAE architecture (imported from _vae_networks)
+- MixedTypeVAE: Product-of-likelihoods VAE (imported from _vae_networks)
+- VAETrainer: Training and embedding utilities with automatic dispatch
 """
 
 from __future__ import annotations
 
-from typing import Optional, Tuple
+from typing import List, Optional, Tuple, Union
 
 import time
 
@@ -18,14 +19,22 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader, TensorDataset
 
-from ._vae_networks import TabularVAE
+from ._vae_networks import (
+    ColumnSpec,
+    DecoderOutput,
+    MixedTypeVAE,
+    TabularVAE,
+)
 
 
 class VAETrainer:
     """
-    Trainer for TabularVAE.
+    Trainer for TabularVAE and MixedTypeVAE.
 
     Handles training loop, loss computation, and embedding extraction.
+    Automatically dispatches between MSE-only (legacy) and mixed-type
+    (product-of-likelihoods) training depending on whether a
+    :class:`ColumnSpec` is provided and ``cfg.use_mixed_likelihood`` is True.
     """
 
     def __init__(
@@ -33,21 +42,127 @@ class VAETrainer:
         cfg,  # VAEConfig
         seed: int,
         device: torch.device,
+        column_spec: Optional[ColumnSpec] = None,
     ):
         self.cfg = cfg
         self.seed = seed
         self.device = device
-        self.model: Optional[TabularVAE] = None
+        self.column_spec = column_spec
+        self.model: Optional[Union[TabularVAE, MixedTypeVAE]] = None
+
+        # Decide whether to use mixed-type likelihood path
+        self.use_mixed: bool = (
+            column_spec is not None
+            and bool(getattr(cfg, "use_mixed_likelihood", False))
+        )
 
         torch.manual_seed(seed)
         if torch.cuda.is_available():
             torch.cuda.manual_seed(seed)
 
+    # ------------------------------------------------------------------
+    # KL weight with optional linear warmup
+    # ------------------------------------------------------------------
+
+    def _kl_weight(self, epoch: int) -> float:
+        """Return the KL weight for a given epoch (linear warmup)."""
+        base = float(self.cfg.kl_weight)
+        warmup = int(getattr(self.cfg, "kl_warmup_epochs", 0))
+        if warmup <= 0 or epoch >= warmup:
+            return base
+        return base * (epoch / warmup)
+
+    # ------------------------------------------------------------------
+    # Mixed-type reconstruction loss
+    # ------------------------------------------------------------------
+
+    def _mixed_loss(
+        self,
+        x: torch.Tensor,
+        dec_out: DecoderOutput,
+        mu: torch.Tensor,
+        logvar: torch.Tensor,
+        epoch: int,
+    ) -> torch.Tensor:
+        """Product-of-likelihoods reconstruction + KL with warmup.
+
+        Loss = (1/B) * [ mean-per-block-losses ] + beta(epoch) * KL
+
+        Per-type block losses (averaged over columns within block, then
+        averaged across the active blocks so that each *type family*
+        contributes equally regardless of column count):
+
+        * **Gaussian** (continuous): MSE  (≡ NLL with sigma²=1 up to const)
+        * **Bernoulli** (binary):    BCE with logits
+        * **Categorical** (K>2):     CE per head, averaged
+        """
+        cs = self.column_spec
+        assert cs is not None
+
+        blocks: List[torch.Tensor] = []
+
+        # --- Continuous (Gaussian NLL → MSE, σ²=1) ---
+        if cs.n_continuous > 0:
+            target_cont = x[:, cs.continuous_idx]
+            # F.mse_loss with reduction="mean" averages over all elements
+            loss_cont = F.mse_loss(dec_out.continuous, target_cont, reduction="mean")
+            blocks.append(loss_cont)
+
+        # --- Binary (Bernoulli → BCE with logits) ---
+        if cs.n_binary > 0:
+            target_bin = x[:, cs.binary_idx]
+            loss_bin = F.binary_cross_entropy_with_logits(
+                dec_out.binary, target_bin, reduction="mean",
+            )
+            blocks.append(loss_bin)
+
+        # --- Multi-class categorical (CE per head) ---
+        if cs.n_categorical > 0:
+            cat_losses: List[torch.Tensor] = []
+            for i, (col_idx, _K_j) in enumerate(cs.categorical_specs):
+                target_ids = x[:, col_idx].long()
+                logits = dec_out.categorical[i]  # (B, K_j)
+                cat_losses.append(F.cross_entropy(logits, target_ids, reduction="mean"))
+            # Average across categorical heads
+            loss_cat = torch.stack(cat_losses).mean()
+            blocks.append(loss_cat)
+
+        # Block averaging: equal weight per type family
+        recon_loss = torch.stack(blocks).mean()
+
+        # KL divergence with warmup
+        kl_loss = -0.5 * torch.mean(1 + logvar - mu.pow(2) - logvar.exp())
+        beta = self._kl_weight(epoch)
+
+        return recon_loss + beta * kl_loss
+
+    # ------------------------------------------------------------------
+    # Legacy MSE loss (inline for speed, but also available as method)
+    # ------------------------------------------------------------------
+
+    def _mse_loss(
+        self,
+        x: torch.Tensor,
+        recon: torch.Tensor,
+        mu: torch.Tensor,
+        logvar: torch.Tensor,
+        epoch: int,
+    ) -> torch.Tensor:
+        """Legacy MSE reconstruction + KL with warmup."""
+        recon_loss = F.mse_loss(recon, x, reduction="mean")
+        kl_loss = -0.5 * torch.mean(1 + logvar - mu.pow(2) - logvar.exp())
+        beta = self._kl_weight(epoch)
+        return recon_loss + beta * kl_loss
+
+    # ------------------------------------------------------------------
+    # Training
+    # ------------------------------------------------------------------
+
     def train(
         self,
         X: np.ndarray,
         X_val: Optional[np.ndarray] = None,
-    ) -> TabularVAE:
+    ) -> Union[TabularVAE, MixedTypeVAE]:
         """
         Train the VAE.
 
@@ -56,7 +171,6 @@ class VAETrainer:
         * For small datasets (N <= 50k), uses **full-batch** training which
           eliminates the inner Python loop entirely (1 forward + 1 backward
           per epoch instead of ceil(N/batch_size)).
-        * Loss is computed inline (no method-call overhead in the hot path).
         * ``torch.compile`` is used when available (PyTorch >= 2.0) for
           fused-kernel acceleration.
         * All debug instrumentation has been removed from the hot loop;
@@ -80,12 +194,22 @@ class VAETrainer:
         input_dim = int(X.shape[1])
         n_train = int(X.shape[0])
 
-        # Create model
-        self.model = TabularVAE(
-            input_dim=input_dim,
-            latent_dim=int(self.cfg.latent_dim),
-            hidden_dim=int(self.cfg.hidden_dim),
-        ).to(self.device)
+        # ---- Create model (dispatch) ----
+        if self.use_mixed and self.column_spec is not None:
+            self.model = MixedTypeVAE(
+                column_spec=self.column_spec,
+                latent_dim=int(self.cfg.latent_dim),
+                hidden_dim=int(self.cfg.hidden_dim),
+                cat_embedding_dim=int(getattr(self.cfg, "cat_embedding_dim", 16)),
+            ).to(self.device)
+            model_tag = "MixedTypeVAE"
+        else:
+            self.model = TabularVAE(
+                input_dim=input_dim,
+                latent_dim=int(self.cfg.latent_dim),
+                hidden_dim=int(self.cfg.hidden_dim),
+            ).to(self.device)
+            model_tag = "TabularVAE"
 
         # torch.compile (PyTorch 2.x) — significant CPU speedup
         compiled_model = self.model
@@ -154,22 +278,24 @@ class VAETrainer:
         scaler = torch.amp.GradScaler(enabled=use_amp)
 
         n_params = sum(p.numel() for p in self.model.parameters())
+        warmup_epochs = int(getattr(self.cfg, "kl_warmup_epochs", 0))
         print(
-            f"[VAE] Training: {epochs} epochs, N={n_train}, D={input_dim}, "
+            f"[VAE] Training {model_tag}: {epochs} epochs, N={n_train}, D={input_dim}, "
             f"params={n_params:,}, device={self.device}, "
             f"{'full-batch' if use_full_batch else 'batch_size=' + str(batch_size)}"
             f"{', compiled' if use_compiled else ''}"
-            f"{', amp' if use_amp else ''}",
+            f"{', amp' if use_amp else ''}"
+            f"{', KL-warmup=' + str(warmup_epochs) if warmup_epochs > 0 else ''}",
             flush=True,
         )
-
-        # Cache attribute lookup
-        kl_weight = float(self.cfg.kl_weight)
 
         best_val_loss = float("inf")
         patience_counter = 0
         last_val_loss: Optional[float] = None
         t0 = time.time()
+
+        # ---- Dispatch: mixed-type vs. legacy MSE ----
+        use_mixed = self.use_mixed
 
         if use_full_batch:
             # ===========================================================
@@ -178,12 +304,12 @@ class VAETrainer:
             for epoch in range(epochs):
                 compiled_model.train()
                 with torch.amp.autocast(self.device.type, enabled=use_amp):
-                    recon, mu, logvar = compiled_model(X_train_t)
-                    recon_loss = F.mse_loss(recon, X_train_t, reduction="mean")
-                    kl_loss = -0.5 * torch.mean(
-                        1 + logvar - mu.pow(2) - logvar.exp()
-                    )
-                    loss = recon_loss + kl_weight * kl_loss
+                    if use_mixed:
+                        dec_out, mu, logvar = compiled_model(X_train_t)
+                        loss = self._mixed_loss(X_train_t, dec_out, mu, logvar, epoch)
+                    else:
+                        recon, mu, logvar = compiled_model(X_train_t)
+                        loss = self._mse_loss(X_train_t, recon, mu, logvar, epoch)
 
                 optimizer.zero_grad(set_to_none=True)
                 scaler.scale(loss).backward()
@@ -207,7 +333,7 @@ class VAETrainer:
                     or epoch == epochs - 1
                 ):
                     last_val_loss = self._evaluate_tensor(
-                        X_val_t, batch_size=n_train
+                        X_val_t, batch_size=n_train, epoch=epoch,
                     )
                     if early_stop_patience > 0:
                         if last_val_loss < best_val_loss:
@@ -231,12 +357,12 @@ class VAETrainer:
                     batch = X_train_t[perm[start : start + batch_size]]
 
                     with torch.amp.autocast(self.device.type, enabled=use_amp):
-                        recon, mu, logvar = compiled_model(batch)
-                        recon_loss = F.mse_loss(recon, batch, reduction="mean")
-                        kl_loss = -0.5 * torch.mean(
-                            1 + logvar - mu.pow(2) - logvar.exp()
-                        )
-                        loss = recon_loss + kl_weight * kl_loss
+                        if use_mixed:
+                            dec_out, mu, logvar = compiled_model(batch)
+                            loss = self._mixed_loss(batch, dec_out, mu, logvar, epoch)
+                        else:
+                            recon, mu, logvar = compiled_model(batch)
+                            loss = self._mse_loss(batch, recon, mu, logvar, epoch)
 
                     optimizer.zero_grad(set_to_none=True)
                     scaler.scale(loss).backward()
@@ -262,7 +388,7 @@ class VAETrainer:
                     or epoch == epochs - 1
                 ):
                     last_val_loss = self._evaluate_tensor(
-                        X_val_t, batch_size=batch_size
+                        X_val_t, batch_size=batch_size, epoch=epoch,
                     )
                     if early_stop_patience > 0:
                         if last_val_loss < best_val_loss:
@@ -278,6 +404,10 @@ class VAETrainer:
         print(f"[VAE] Training complete ({elapsed:.1f}s, {epochs} epochs)", flush=True)
         return self.model
 
+    # ------------------------------------------------------------------
+    # Legacy loss (kept for backward compatibility with external callers)
+    # ------------------------------------------------------------------
+
     def _vae_loss(
         self,
         x: torch.Tensor,
@@ -285,12 +415,22 @@ class VAETrainer:
         mu: torch.Tensor,
         logvar: torch.Tensor,
     ) -> torch.Tensor:
-        """Compute VAE loss (reconstruction + KL divergence)."""
+        """Compute legacy VAE loss (MSE + KL, no warmup)."""
         recon_loss = F.mse_loss(recon, x, reduction='mean')
         kl_loss = -0.5 * torch.mean(1 + logvar - mu.pow(2) - logvar.exp())
         return recon_loss + self.cfg.kl_weight * kl_loss
 
-    def _evaluate_tensor(self, X_tensor: torch.Tensor, *, batch_size: int) -> float:
+    # ------------------------------------------------------------------
+    # Evaluation
+    # ------------------------------------------------------------------
+
+    def _evaluate_tensor(
+        self,
+        X_tensor: torch.Tensor,
+        *,
+        batch_size: int,
+        epoch: int = -1,
+    ) -> float:
         """Evaluate the model on an in-memory tensor already on the correct device."""
         self.model.eval()
         n = int(X_tensor.shape[0])
@@ -300,18 +440,23 @@ class VAETrainer:
             batch_size = n
 
         total_loss = torch.zeros((), device=X_tensor.device)
+        use_mixed = self.use_mixed
 
         with torch.inference_mode():
             for start in range(0, n, batch_size):
                 batch = X_tensor[start : start + batch_size]
-                recon, mu, logvar = self.model(batch)
-                loss = self._vae_loss(batch, recon, mu, logvar)
+                if use_mixed:
+                    dec_out, mu, logvar = self.model(batch)
+                    loss = self._mixed_loss(batch, dec_out, mu, logvar, epoch)
+                else:
+                    recon, mu, logvar = self.model(batch)
+                    loss = self._mse_loss(batch, recon, mu, logvar, epoch)
                 total_loss = total_loss + loss.detach() * batch.size(0)
 
         return float((total_loss / n).item())
 
     def _evaluate(self, loader: DataLoader) -> float:
-        """Evaluate model on a data loader."""
+        """Evaluate model on a data loader (legacy MSE path only)."""
         self.model.eval()
         total_loss = torch.zeros((), device=self.device)
         n_samples = 0
@@ -326,9 +471,16 @@ class VAETrainer:
 
         return float((total_loss / max(1, n_samples)).item())
 
+    # ------------------------------------------------------------------
+    # Embedding extraction
+    # ------------------------------------------------------------------
+
     def embed(self, X: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         """
         Get latent embeddings for data.
+
+        Works identically for both TabularVAE and MixedTypeVAE, since
+        both expose an ``.encode(x) -> (mu, logvar)`` interface.
 
         Parameters
         ----------

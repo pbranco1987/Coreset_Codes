@@ -66,6 +66,98 @@ from ._cache_sampling import (    # noqa: F401
 )
 
 
+# ---------------------------------------------------------------------------
+# Column specification builder for mixed-type VAE
+# ---------------------------------------------------------------------------
+
+def _build_column_spec(
+    feature_types: List[str],
+    scale_mask: List[bool],
+    X_raw: np.ndarray,
+    feature_names: List[str],
+    category_maps: Optional[Dict] = None,
+):
+    """Build a ColumnSpec from preprocessing metadata.
+
+    Classifies each column in the preprocessed feature matrix into one of
+    three likelihood families for :class:`MixedTypeVAE`:
+
+    - **continuous** — numeric/ordinal columns (scaled) and missingness
+      indicators.  These use Gaussian NLL (≡ MSE when σ²=1).
+    - **binary** — categorical columns with K ≤ 2 (unscaled 0/1 codes).
+      These use BCE with logits.
+    - **categorical** — categorical columns with K > 2 (unscaled integer
+      codes).  These use CE with softmax logits.
+
+    Parameters
+    ----------
+    feature_types : list of str
+        Per-column type ("numeric", "ordinal", "categorical") including
+        appended missingness indicators (which are "numeric").
+    scale_mask : list of bool
+        Per-column flag: True if the column was standardised, False if not.
+        Categorical columns are NOT scaled.
+    X_raw : np.ndarray
+        The imputed (but unscaled) feature matrix — used to determine
+        cardinality of categorical columns when ``category_maps`` is absent.
+    feature_names : list of str
+        Column names matching the column order in ``X_raw``.
+    category_maps : dict, optional
+        ``{col_name: {value: code}}`` mappings from DataManager.  Used to
+        determine cardinality K for each categorical column.
+
+    Returns
+    -------
+    ColumnSpec
+        Column specification for MixedTypeVAE.
+    """
+    from ..models._vae_networks import ColumnSpec
+
+    n_total = X_raw.shape[1]
+    continuous_idx: List[int] = []
+    binary_idx: List[int] = []
+    categorical_specs: List[Tuple[int, int]] = []
+
+    for j in range(n_total):
+        ft = feature_types[j] if j < len(feature_types) else "numeric"
+        is_scaled = bool(scale_mask[j]) if j < len(scale_mask) else True
+
+        if ft == "categorical" and not is_scaled:
+            # Determine cardinality K
+            col_name = feature_names[j] if j < len(feature_names) else f"x{j}"
+            K = None
+            if category_maps and col_name in category_maps:
+                K = len(category_maps[col_name])
+            if K is None:
+                # Fallback: infer from data (max integer code + 1)
+                vals = X_raw[:, j]
+                finite = vals[np.isfinite(vals)]
+                K = int(np.max(finite)) + 1 if finite.size > 0 else 2
+
+            if K <= 2:
+                binary_idx.append(j)
+            else:
+                categorical_specs.append((j, K))
+        else:
+            continuous_idx.append(j)
+
+    spec = ColumnSpec(
+        continuous_idx=np.array(continuous_idx, dtype=np.int64),
+        binary_idx=np.array(binary_idx, dtype=np.int64),
+        categorical_specs=categorical_specs,
+        n_total=n_total,
+    )
+
+    print(
+        f"[cache] ColumnSpec: {spec.n_continuous} continuous, "
+        f"{spec.n_binary} binary, {spec.n_categorical} multi-class "
+        f"(total {n_total})",
+        flush=True,
+    )
+
+    return spec
+
+
 def build_replicate_cache(
     cfg: ExperimentConfig,
     rep_id: int,
@@ -136,6 +228,15 @@ def build_replicate_cache(
                 derived_extra_reg = extract_extra_regression_targets(raw_df)
                 # NOTE: metadata_path deferred until cache_path is known (line ~393)
                 derived_cls = derive_classification_targets(raw_df)
+
+                # Include 4G coverage as a supervised regression target so that
+                # multi-model downstream learners (GBT, RF, KNN, Ridge, SVR)
+                # are also trained on the primary 4G coverage outcome.
+                if y_4G is not None:
+                    derived_extra_reg["cov_area_4G"] = np.nan_to_num(
+                        np.asarray(y_4G, dtype=np.float64), nan=0.0
+                    )
+
                 timer.checkpoint(
                     "Derived targets extracted",
                     n_extra_reg=len(derived_extra_reg),
@@ -361,6 +462,19 @@ def build_replicate_cache(
         Z_vae = None
         Z_logvar = None
 
+        # Build column specification for mixed-type VAE (needed for both
+        # VAE training and for saving in the cache for later augmentation).
+        column_spec = None
+        cat_maps = data_manager.category_maps() if hasattr(data_manager, 'category_maps') else {}
+        if bool(getattr(cfg.vae, "use_mixed_likelihood", False)):
+            column_spec = _build_column_spec(
+                feature_types=extended_types,
+                scale_mask=preproc_meta.get("scale_mask", [True] * X_scaled.shape[1]),
+                X_raw=X_raw,
+                feature_names=list(preproc_meta["feature_names"]),
+                category_maps=cat_maps,
+            )
+
         if int(cfg.vae.epochs) > 0:
             # Safety guard: ensure no target columns remain before representation learning
             validate_no_leakage(preproc_meta["feature_names"])
@@ -370,7 +484,7 @@ def build_replicate_cache(
                 device = torch.device(cfg.device if use_cuda else "cpu")
                 timer.checkpoint("VAE device", device=str(device), cuda_available=torch.cuda.is_available())
 
-                vae_trainer = VAETrainer(cfg.vae, seed, device)
+                vae_trainer = VAETrainer(cfg.vae, seed, device, column_spec=column_spec)
                 vae_trainer.train(X_scaled[train_idx], X_val=X_scaled[val_idx])
 
             with timer.section("VAE_embedding"):
@@ -444,7 +558,7 @@ def build_replicate_cache(
             }
 
             # Phase 2: Store category_maps as serialized JSON string
-            cat_maps = data_manager.category_maps() if hasattr(data_manager, 'category_maps') else {}
+            # (cat_maps was already fetched above for column_spec building)
             if cat_maps:
                 import json
                 # Convert keys to strings for JSON serialization
@@ -479,6 +593,16 @@ def build_replicate_cache(
             else:
                 detected_type = "regression"
             save_dict["target_type"] = np.array(detected_type, dtype=object)
+
+            # Mixed-type VAE column specification (for augmentation path)
+            if column_spec is not None:
+                save_dict["colspec_continuous_idx"] = column_spec.continuous_idx
+                save_dict["colspec_binary_idx"] = column_spec.binary_idx
+                if column_spec.categorical_specs:
+                    save_dict["colspec_cat_specs"] = np.array(
+                        column_spec.categorical_specs, dtype=np.int64,
+                    )
+                save_dict["colspec_n_total"] = np.array(column_spec.n_total, dtype=np.int64)
 
             if Z_vae is not None:
                 save_dict["Z_vae"] = Z_vae
@@ -749,11 +873,67 @@ def ensure_replicate_cache(cfg: ExperimentConfig, rep_id: int) -> str:
             val_idx = np.asarray(existing.get("val_idx"), dtype=int)
             use_cuda = torch.cuda.is_available() and str(cfg.device).startswith("cuda")
             device = torch.device(cfg.device if use_cuda else "cpu")
-            vae_trainer = VAETrainer(cfg.vae, seed, device)
+
+            # Reconstruct ColumnSpec from cached arrays (if available)
+            column_spec = None
+            if bool(getattr(cfg.vae, "use_mixed_likelihood", False)):
+                if "colspec_continuous_idx" in existing and "colspec_binary_idx" in existing:
+                    from ..models._vae_networks import ColumnSpec
+                    cat_specs_arr = existing.get("colspec_cat_specs", None)
+                    cat_specs_list = []
+                    if cat_specs_arr is not None and cat_specs_arr.size > 0:
+                        cat_specs_list = [(int(row[0]), int(row[1])) for row in cat_specs_arr]
+                    column_spec = ColumnSpec(
+                        continuous_idx=np.asarray(existing["colspec_continuous_idx"], dtype=np.int64),
+                        binary_idx=np.asarray(existing["colspec_binary_idx"], dtype=np.int64),
+                        categorical_specs=cat_specs_list,
+                        n_total=int(existing.get("colspec_n_total", X_scaled.shape[1])),
+                    )
+                    print(
+                        f"[cache] rep{rep_id:02d}: Reconstructed ColumnSpec from cache "
+                        f"({column_spec.n_continuous} cont, {column_spec.n_binary} bin, "
+                        f"{column_spec.n_categorical} cat)",
+                        flush=True,
+                    )
+                else:
+                    # No saved ColumnSpec — build from feature metadata
+                    feat_types = list(existing.get("feature_types", []))
+                    scale_mask = list(existing.get("scale_mask", []))
+                    feat_names = list(existing.get("feature_names", []))
+                    X_raw = np.asarray(existing.get("X_raw", X_scaled), dtype=np.float32)
+                    # Try to load category maps from cache
+                    cat_maps = {}
+                    if "category_maps_json" in existing:
+                        import json as _json_aug
+                        try:
+                            cat_maps = _json_aug.loads(str(existing["category_maps_json"]))
+                        except Exception:
+                            pass
+                    if feat_types and scale_mask:
+                        column_spec = _build_column_spec(
+                            feature_types=feat_types,
+                            scale_mask=scale_mask,
+                            X_raw=X_raw,
+                            feature_names=feat_names,
+                            category_maps=cat_maps,
+                        )
+
+            vae_trainer = VAETrainer(cfg.vae, seed, device, column_spec=column_spec)
             vae_trainer.train(X_scaled[train_idx], X_val=X_scaled[val_idx] if val_idx.size else None)
             Z_vae, Z_logvar = vae_trainer.embed(X_scaled)
             existing["Z_vae"] = np.asarray(Z_vae, dtype=np.float32)
             existing["Z_logvar"] = np.asarray(Z_logvar, dtype=np.float32)
+
+            # Persist column_spec in augmented cache for future use
+            if column_spec is not None and "colspec_continuous_idx" not in existing:
+                existing["colspec_continuous_idx"] = column_spec.continuous_idx
+                existing["colspec_binary_idx"] = column_spec.binary_idx
+                if column_spec.categorical_specs:
+                    existing["colspec_cat_specs"] = np.array(
+                        column_spec.categorical_specs, dtype=np.int64,
+                    )
+                existing["colspec_n_total"] = np.array(column_spec.n_total, dtype=np.int64)
+
             augmented = True
 
         # Add PCA embeddings if required and missing OR wrong dimension.
@@ -966,6 +1146,16 @@ def load_replicate_cache(asset_path: str) -> ReplicateAssets:
     # Load QoS target (qf_mean — Qualidade do Funcionamento)
     if "qos_target" in data.files:
         metadata["qos_target"] = np.asarray(data["qos_target"], dtype=np.float64)
+
+    # Mixed-type VAE column specification
+    if "colspec_continuous_idx" in data.files:
+        metadata["colspec_continuous_idx"] = np.asarray(data["colspec_continuous_idx"], dtype=np.int64)
+    if "colspec_binary_idx" in data.files:
+        metadata["colspec_binary_idx"] = np.asarray(data["colspec_binary_idx"], dtype=np.int64)
+    if "colspec_cat_specs" in data.files:
+        metadata["colspec_cat_specs"] = np.asarray(data["colspec_cat_specs"], dtype=np.int64)
+    if "colspec_n_total" in data.files:
+        metadata["colspec_n_total"] = int(data["colspec_n_total"])
 
     # Geo metadata for plotting
     if "latitude" in data.files:

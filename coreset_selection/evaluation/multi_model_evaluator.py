@@ -33,7 +33,8 @@ from sklearn.ensemble import (
     RandomForestRegressor, RandomForestClassifier,
     GradientBoostingRegressor, GradientBoostingClassifier,
 )
-from sklearn.linear_model import LogisticRegression
+from sklearn.linear_model import LogisticRegression, Ridge
+from sklearn.svm import SVR, SVC
 from sklearn.metrics import (
     mean_squared_error, mean_absolute_error, r2_score,
     accuracy_score, balanced_accuracy_score, f1_score,
@@ -57,6 +58,8 @@ def _regression_models(seed: int) -> Dict[str, object]:
         "gbt": GradientBoostingRegressor(
             n_estimators=50, max_depth=5, random_state=seed,
         ),
+        "ridge": Ridge(alpha=1.0),
+        "svr": SVR(kernel="rbf", C=1.0),
     }
 
 
@@ -73,6 +76,7 @@ def _classification_models(seed: int) -> Dict[str, object]:
         "gbt": GradientBoostingClassifier(
             n_estimators=50, max_depth=5, random_state=seed,
         ),
+        "svc": SVC(kernel="rbf", C=1.0, random_state=seed),
     }
 
 

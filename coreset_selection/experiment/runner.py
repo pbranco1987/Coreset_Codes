@@ -180,27 +180,56 @@ class ExperimentRunner(R0Mixin, DiagnosticsMixin, EffortMixin, EvalMixin):
                 )
 
             with timer.section("build_projector"):
+                # Choose projector weight type based on constraint mode:
+                #   pop-weighted: population_share, population_share_quota, joint_hard_soft
+                #   muni-weighted: municipality_share, municipality_share_quota, joint,
+                #                  joint_soft_hard, none
+                _proj_wt = (
+                    "pop"
+                    if str(cfg.geo.constraint_mode) in {
+                        "population_share_quota", "population_share",
+                        "joint_hard_soft",  # pop is HARD → pop-weighted projection
+                    }
+                    else "muni"
+                )
                 projector = GeographicConstraintProjector(
                     geo=geo,
                     alpha_geo=float(cfg.geo.alpha_geo),
                     min_one_per_group=bool(cfg.geo.min_one_per_group),
+                    weight_type=_proj_wt,
                 )
             self._phase_end("setup_geo", _tp)
 
             # ------------------------------------------------------------
-            # Weighted proportionality constraints (population-share / joint / muni)
+            # Weighted proportionality constraints
             # Per manuscript Section IV-B and Table 2:
-            #   population_share: w_i = pop_i (primary)
-            #   municipality_share_quota: w_i ≡ 1 (count quota mode)
-            #   joint: both population-share AND municipality-share quota
-            #   none: no proportionality constraints (exact-k only)
+            #   population_share:       w_i = pop_i, SOFT KL constraint
+            #   population_share_quota: w_i = pop_i, HARD deterministic quota
+            #   municipality_share:     w_i = 1,     SOFT KL constraint
+            #   municipality_share_quota: w_i = 1,   HARD deterministic quota
+            #   joint:            both HARD (pop quota + muni quota)
+            #   joint_soft_hard:  pop SOFT (KL) + muni HARD (quota)
+            #   joint_hard_soft:  pop HARD (quota) + muni SOFT (KL)
+            #   none:   no proportionality constraints (exact-k only)
             # ------------------------------------------------------------
             constraint_set: Optional[ProportionalityConstraintSet] = None
             with timer.section("build_proportionality_constraints"):
                 mode = str(cfg.geo.constraint_mode)
                 constraints_list = []
 
-                if mode in {"population_share", "joint"}:
+                _MODES_WITH_POP = {
+                    "population_share", "population_share_quota",
+                    "joint", "joint_soft_hard", "joint_hard_soft",
+                }
+                _MODES_WITH_MUNI = {
+                    "municipality_share", "municipality_share_quota",
+                    "joint", "joint_soft_hard", "joint_hard_soft",
+                }
+                _MODES_PRESERVE = {
+                    "joint", "joint_soft_hard", "joint_hard_soft",
+                }
+
+                if mode in _MODES_WITH_POP:
                     if geo.population_weights is not None:
                         pop = geo.population_weights
                     elif getattr(assets, "population", None) is not None:
@@ -215,7 +244,7 @@ class ExperimentRunner(R0Mixin, DiagnosticsMixin, EffortMixin, EvalMixin):
                     )
                     constraints_list.append(c_pop)
 
-                if mode == "joint":
+                if mode in _MODES_WITH_MUNI:
                     c_muni = build_municipality_share_constraint(
                         geo=geo,
                         alpha=float(cfg.geo.alpha_geo),
@@ -224,7 +253,7 @@ class ExperimentRunner(R0Mixin, DiagnosticsMixin, EffortMixin, EvalMixin):
                     constraints_list.append(c_muni)
 
                 if constraints_list:
-                    preserve = (mode == "joint")
+                    preserve = (mode in _MODES_PRESERVE)
                     constraint_set = ProportionalityConstraintSet(
                         geo=geo,
                         constraints=constraints_list,
@@ -531,6 +560,9 @@ class ExperimentRunner(R0Mixin, DiagnosticsMixin, EffortMixin, EvalMixin):
         requested_space = self.cfg.space
 
         # Only build the computer for the requested space
+        # Resolve optional Nystrom log-det config
+        nld_cfg = getattr(self.cfg, "nystrom_logdet", None)
+
         if requested_space == "raw":
             computers["raw"] = build_space_objective_computer(
                 X=assets.X_scaled,
@@ -538,6 +570,7 @@ class ExperimentRunner(R0Mixin, DiagnosticsMixin, EffortMixin, EvalMixin):
                 mmd_cfg=self.cfg.mmd,
                 sinkhorn_cfg=self.cfg.sinkhorn,
                 seed=seed,
+                nystrom_logdet_cfg=nld_cfg,
             )
         elif requested_space == "vae":
             if assets.Z_vae is None:
@@ -548,6 +581,7 @@ class ExperimentRunner(R0Mixin, DiagnosticsMixin, EffortMixin, EvalMixin):
                 mmd_cfg=self.cfg.mmd,
                 sinkhorn_cfg=self.cfg.sinkhorn,
                 seed=seed,
+                nystrom_logdet_cfg=nld_cfg,
             )
         elif requested_space == "pca":
             if assets.Z_pca is None:
@@ -558,6 +592,7 @@ class ExperimentRunner(R0Mixin, DiagnosticsMixin, EffortMixin, EvalMixin):
                 mmd_cfg=self.cfg.mmd,
                 sinkhorn_cfg=self.cfg.sinkhorn,
                 seed=seed,
+                nystrom_logdet_cfg=nld_cfg,
             )
         else:
             raise ValueError(f"Unknown space: {requested_space}. Expected 'raw', 'vae', or 'pca'.")
@@ -578,10 +613,18 @@ class ExperimentRunner(R0Mixin, DiagnosticsMixin, EffortMixin, EvalMixin):
         exactk = bool(cfg.solver.enforce_exact_k)
         if mode == "joint":
             return "joint" if exactk else "joint_noexactk"
+        if mode == "joint_soft_hard":
+            return "joint_sh" if exactk else "joint_sh_noexactk"
+        if mode == "joint_hard_soft":
+            return "joint_hs" if exactk else "joint_hs_noexactk"
         if mode == "municipality_share_quota":
             return "quota+exactk" if exactk else "quota_only"
+        if mode == "municipality_share":
+            return "munishare+exactk" if exactk else "munishare_only"
         if mode == "population_share":
             return "popshare+exactk" if exactk else "popshare_only"
+        if mode == "population_share_quota":
+            return "popquota+exactk" if exactk else "popquota_only"
         if mode == "none":
             return "exactk_only" if exactk else "unconstrained"
         return f"{mode}+{'exactk' if exactk else 'noexactk'}"

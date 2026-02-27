@@ -21,6 +21,7 @@ from ._dc_components import (
     GeoConfig,
     SinkhornConfig,
     MMDConfig,
+    NystromLogDetConfig,
     PCAConfig,
 )
 
@@ -48,6 +49,7 @@ __all__ = [
     "GeoConfig",
     "SinkhornConfig",
     "MMDConfig",
+    "NystromLogDetConfig",
     "PCAConfig",
     # Experiment-level configs
     "EffortSweepGrid",

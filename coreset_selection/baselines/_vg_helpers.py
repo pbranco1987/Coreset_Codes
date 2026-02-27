@@ -27,15 +27,15 @@ METHOD_REGISTRY: Dict[str, Dict[str, str]] = {
     "DPP":  {"full_name": "k-DPP",                "regime": "exactk"},
     "KT":   {"full_name": "Kernel thinning",      "regime": "exactk"},
     "KKN":  {"full_name": "KKM-Nystrom",          "regime": "exactk"},
-    # quota-matched baselines (S-prefix)
-    "SU":   {"full_name": "Uniform (quota)",       "regime": "quota"},
-    "SKM":  {"full_name": "K-means reps (quota)",  "regime": "quota"},
-    "SKH":  {"full_name": "Kernel herding (quota)","regime": "quota"},
-    "SFF":  {"full_name": "Farthest-first (quota)","regime": "quota"},
-    "SRLS": {"full_name": "Ridge leverage (quota)","regime": "quota"},
-    "SDPP": {"full_name": "k-DPP (quota)",         "regime": "quota"},
-    "SKT":  {"full_name": "Kernel thinning (quota)","regime": "quota"},
-    "SKKN": {"full_name": "KKM-Nystrom (quota)",   "regime": "quota"},
+    # municipality-share quota baselines (S-prefix)
+    "SU":   {"full_name": "Uniform (muni-quota)",       "regime": "muni_quota"},
+    "SKM":  {"full_name": "K-means reps (muni-quota)",  "regime": "muni_quota"},
+    "SKH":  {"full_name": "Kernel herding (muni-quota)","regime": "muni_quota"},
+    "SFF":  {"full_name": "Farthest-first (muni-quota)","regime": "muni_quota"},
+    "SRLS": {"full_name": "Ridge leverage (muni-quota)","regime": "muni_quota"},
+    "SDPP": {"full_name": "k-DPP (muni-quota)",         "regime": "muni_quota"},
+    "SKT":  {"full_name": "Kernel thinning (muni-quota)","regime": "muni_quota"},
+    "SKKN": {"full_name": "KKM-Nystrom (muni-quota)",   "regime": "muni_quota"},
     # Population-share quota baselines (P-prefix)
     "PU":   {"full_name": "Uniform (pop-quota)",        "regime": "pop_quota"},
     "PKM":  {"full_name": "K-means reps (pop-quota)",   "regime": "pop_quota"},
@@ -99,7 +99,7 @@ class BaselineResult:
 
     method: str
     full_name: str
-    regime: str          # "exactk" or "quota"
+    regime: str          # "exactk", "muni_quota", "pop_quota", or "joint_quota"
     space: str           # "raw", "vae", "pca"
     k: int
     selected_indices: np.ndarray

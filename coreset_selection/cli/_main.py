@@ -72,10 +72,12 @@ def main() -> int:
     # scenario command (run full R# scenario independently)
     scenario_parser = subparsers.add_parser(
         "scenario",
-        help="Run a full manuscript scenario (R0-R11) as a standalone job",
+        help="Run a manuscript scenario (R0-R15, G1-G48, or v2 name e.g. K_vae, N_v_ps)",
     )
-    scenario_parser.add_argument("--run-id", required=True, choices=sorted(get_run_specs().keys()))
-    scenario_parser.add_argument("--k-values", default=None, help="Comma-separated k values (overrides run spec)")
+    scenario_parser.add_argument("--run-id", required=True,
+                                 help="Run ID (R0-R15, G1-G48, or v2 name). Use list-runs to see all.")
+    scenario_parser.add_argument("-k", "--k-values", default=None,
+                                 help="Coreset size(s): single value or comma-separated (e.g., -k 100 or -k 100,200)")
     scenario_parser.add_argument("--rep-ids", default=None, help="Comma-separated replicate IDs (overrides run spec)")
     scenario_parser.add_argument("--output-dir", default="runs_out")
     scenario_parser.add_argument("--cache-dir", default="replicate_cache")
@@ -86,7 +88,6 @@ def main() -> int:
     # R6 extras
     scenario_parser.add_argument("--source-run", default="R1", help="(R6) Source run base ID")
     scenario_parser.add_argument("--source-space", default="vae", help="(R6) Source space: vae|pca|raw")
-    scenario_parser.add_argument("--k", type=int, default=None, help="(R6) k value for source run")
     scenario_parser.set_defaults(func=cmd_scenario)
 
     # Convenience aliases: r0, r1, ..., r10
@@ -107,9 +108,10 @@ def main() -> int:
         "R12": "effort sweep (pop_size x n_gen)",
         "R13": "VAE latent dim sweep D in {4..128}",
         "R14": "PCA dim sweep D in {4..128}",
+        "R15": "single k, tri-objective MMD+Sinkhorn+logdet, VAE",
     }
 
-    for _rid in [f"r{i}" for i in range(15)]:
+    for _rid in [f"r{i}" for i in range(16)]:
         _run_id = _rid.upper()
         _info = _k_info.get(_run_id, "")
         help_text = f"Run scenario {_run_id}" + (f" ({_info})" if _info else "")

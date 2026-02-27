@@ -3,15 +3,14 @@
 Standalone driver for population-share and joint-constrained baselines.
 
 Loads cached replicate assets, builds evaluator, and runs baseline methods
-under pop-quota or joint-quota regimes.  Results are saved to CSV in the
+under any of the 4 constraint regimes.  Results are saved to CSV in the
 same format as the existing R10 pipeline.
 
-Experiment structure (42 jobs total):
-  - Pop-quota:   7 k-values x 5 reps = 35 jobs  (R10_pop_quota)
-  - Joint-quota: 7 k-values x 1 rep  =  7 jobs  (R10_joint_quota)
-
-Each job runs 8 methods x 3 spaces = 24 combos, each evaluated through
-5 stages (geo, Nystrom+KRR, KPI stability, multi-model, QoS).
+Supported regimes:
+  - pop_quota:    population-share hard quotas (P-prefix methods)
+  - muni_quota:   municipality-share hard quotas (S-prefix methods)
+  - joint_quota:  both pop + muni quotas (J-prefix methods)
+  - exactk:       no geographic constraint, |S|=k only (unprefixed methods)
 
 Usage:
     python -m coreset_selection.scripts.run_pop_baselines \
@@ -22,7 +21,7 @@ Usage:
 Arguments:
     --k INT             Coreset size (from K_GRID: 30,50,100,200,300,400,500)
     --rep-id INT        Replicate index (0-4)
-    --regime STR        Constraint regime: 'pop_quota' or 'joint_quota'
+    --regime STR        Constraint regime: 'pop_quota', 'muni_quota', 'joint_quota', or 'exactk'
     --spaces STR        Comma-separated spaces to run (default: 'raw,vae,pca')
     --cache-dir STR     Path to replicate cache directory
     --output-dir STR    Output directory for results
@@ -77,8 +76,8 @@ def main():
     parser.add_argument("--rep-id", type=int, required=True, help="Replicate index (0-4)")
     parser.add_argument(
         "--regime", type=str, required=True,
-        choices=["pop_quota", "joint_quota"],
-        help="Constraint regime",
+        choices=["pop_quota", "muni_quota", "joint_quota", "exactk"],
+        help="Constraint regime: pop_quota, muni_quota, joint_quota, or exactk",
     )
     parser.add_argument(
         "--spaces", type=str, default="raw,vae,pca",

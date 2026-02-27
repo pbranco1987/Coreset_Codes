@@ -24,6 +24,7 @@ from ._dc_components import (
     GeoConfig,
     SinkhornConfig,
     MMDConfig,
+    NystromLogDetConfig,
     PCAConfig,
 )
 
@@ -330,6 +331,7 @@ class ExperimentConfig:
     geo: GeoConfig = field(default_factory=GeoConfig)
     sinkhorn: SinkhornConfig = field(default_factory=SinkhornConfig)
     mmd: MMDConfig = field(default_factory=MMDConfig)
+    nystrom_logdet: NystromLogDetConfig = field(default_factory=NystromLogDetConfig)
     solver: SolverConfig = field(default_factory=SolverConfig)
     eval: EvalConfig = field(default_factory=EvalConfig)
     baselines: BaselinesConfig = field(default_factory=BaselinesConfig)
