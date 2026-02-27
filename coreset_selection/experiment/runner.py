@@ -144,7 +144,8 @@ class ExperimentRunner(R0Mixin, DiagnosticsMixin, EffortMixin, EvalMixin):
             # R0 can run without a replicate cache (quota computation only).
             # ------------------------------------------------------------
             base_run_id = str(cfg.run_id).split("_")[0]
-            if base_run_id == "R0":
+            # v2 run_ids: "P" → R0, "D"/"D_*" → R11, "T_eff" → R12
+            if base_run_id in ("R0", "P"):
                 return self._run_r0_quota_only(rep_seed)
 
             # ------------------------------------------------------------
@@ -269,7 +270,7 @@ class ExperimentRunner(R0Mixin, DiagnosticsMixin, EffortMixin, EvalMixin):
             # R11: Post-hoc diagnostics
             #   Proxy stability (Table IV) + objective–metric alignment (Fig 4)
             # ------------------------------------------------------------
-            if base_run_id == "R11":
+            if base_run_id in ("R11", "D"):
                 _tp = self._phase_start()
                 result = self._run_r7_diagnostics(assets=assets, seed=rep_seed)
                 self._phase_end("diagnostics", _tp)
@@ -278,7 +279,7 @@ class ExperimentRunner(R0Mixin, DiagnosticsMixin, EffortMixin, EvalMixin):
             # ------------------------------------------------------------
             # R12: Effort sweep (vary NSGA-II pop_size/n_gen, log wall-clock)
             # ------------------------------------------------------------
-            if base_run_id == "R12":
+            if base_run_id == "R12" or cfg.run_id == "T_eff":
                 result = self._run_r12_effort_sweep(
                     assets=assets,
                     geo=geo,
@@ -320,7 +321,7 @@ class ExperimentRunner(R0Mixin, DiagnosticsMixin, EffortMixin, EvalMixin):
             # ------------------------------------------------------------
             # R10 (or legacy R6): baseline heuristic comparison (no NSGA-II)
             # ------------------------------------------------------------
-            if cfg.baselines.enabled and str(cfg.run_id).startswith(("R10", "R6")):
+            if cfg.baselines.enabled and not cfg.solver.enabled:
                 _tp = self._phase_start()
                 rows.extend(
                     self._run_baselines(
@@ -432,8 +433,8 @@ class ExperimentRunner(R0Mixin, DiagnosticsMixin, EffortMixin, EvalMixin):
             # ------------------------------------------------------------
             # NSGA-II (requested space)
             # ------------------------------------------------------------
+            space = cfg.space  # always defined for downstream use
             if cfg.solver.enabled:
-                space = cfg.space
                 algo = cfg.solver.get_algorithm()
                 _tp = self._phase_start()
                 with timer.section(f"{algo.upper()} optimization", space=space, k=cfg.solver.k):

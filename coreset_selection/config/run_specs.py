@@ -1321,8 +1321,14 @@ def apply_run_spec(
         or PCA n_components with this value.  ``None`` (default) keeps the
         base config dimensions unchanged.
     """
-    # Cache path
-    cache_path = os.path.join(base_cfg.files.cache_dir, f"rep{rep_id:02d}", "assets.npz")
+    # Cache path — use a dimension-specific directory when dim_override is set
+    # to prevent T_vdim / T_pdim jobs from corrupting the default d=32 cache
+    # that all other experiments rely on.
+    if dim_override is not None:
+        cache_dir = f"{base_cfg.files.cache_dir}_d{dim_override}"
+    else:
+        cache_dir = base_cfg.files.cache_dir
+    cache_path = os.path.join(cache_dir, f"rep{rep_id:02d}", "assets.npz")
 
     # Geo / constraints
     geo_cfg = replace(
