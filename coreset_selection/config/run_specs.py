@@ -1325,7 +1325,8 @@ def apply_run_spec(
     # to prevent T_vdim / T_pdim jobs from corrupting the default d=32 cache
     # that all other experiments rely on.
     if dim_override is not None:
-        cache_dir = f"{base_cfg.files.cache_dir}_d{dim_override}"
+        space_tag = str(spec.space)  # "vae" or "pca"
+        cache_dir = f"{base_cfg.files.cache_dir}_{space_tag}_d{dim_override}"
     else:
         cache_dir = base_cfg.files.cache_dir
     cache_path = os.path.join(cache_dir, f"rep{rep_id:02d}", "assets.npz")
@@ -1358,7 +1359,7 @@ def apply_run_spec(
         run_id=str(spec.run_id),
         rep_id=int(rep_id),
         space=str(spec.space),
-        files=replace(base_cfg.files, cache_path=cache_path),
+        files=replace(base_cfg.files, cache_dir=cache_dir, cache_path=cache_path),
         geo=geo_cfg,
         solver=solver_cfg,
         eval=eval_cfg,

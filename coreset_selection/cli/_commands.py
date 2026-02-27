@@ -522,8 +522,44 @@ def cmd_scenario(args: argparse.Namespace) -> int:
         print(f"[{run_id}] This ensures all experiment configs share the SAME VAE/PCA per replicate.\n")
 
         seed = args.seed
+        # Always ensure the BASE cache exists first (default d=32 VAE + PCA)
         for rep in _all_rep_ids_needed:
             prebuild_full_cache(base_cfg, rep, seed=seed)
+
+        # For dimension-override runs (T_vdim/T_pdim), seed and pre-build
+        # the dim-specific cache so Phase 2 never falls back to rebuilding
+        # from scratch (which would corrupt the base cache).
+        if dim_override is not None and spec.space in ("vae", "pca"):
+            from coreset_selection.data.cache import _seed_dim_cache, ensure_replicate_cache
+            from dataclasses import replace as dc_replace
+
+            space_tag = str(spec.space)
+            dim_cache_dir = f"{base_cfg.files.cache_dir}_{space_tag}_d{dim_override}"
+            dim_cfg = dc_replace(
+                base_cfg,
+                files=dc_replace(base_cfg.files, cache_dir=dim_cache_dir),
+            )
+            if space_tag == "vae":
+                dim_cfg = dc_replace(
+                    dim_cfg,
+                    vae=dc_replace(dim_cfg.vae, latent_dim=int(dim_override)),
+                )
+            elif space_tag == "pca":
+                dim_cfg = dc_replace(
+                    dim_cfg,
+                    pca=dc_replace(dim_cfg.pca, n_components=int(dim_override)),
+                )
+            print(f"[{run_id}] Pre-building dim-specific caches (D={dim_override}, space={space_tag})...")
+            for rep in _all_rep_ids_needed:
+                _seed_dim_cache(
+                    base_cache_dir=base_cfg.files.cache_dir,
+                    dim_cache_dir=dim_cache_dir,
+                    rep_id=rep,
+                    space_tag=space_tag,
+                )
+                rep_cfg = dc_replace(dim_cfg, rep_id=int(rep), seed=int(seed + rep))
+                ensure_replicate_cache(rep_cfg, rep)
+            print(f"[{run_id}] Dim-specific caches ready.\n")
 
         print(f"[{run_id}] Phase 1 complete — caches ready.\n")
 
