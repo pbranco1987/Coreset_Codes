@@ -1242,9 +1242,145 @@ def run_bootstrap_evaluation(
         # delete the intermediate checkpoint + partial files.
         cleanup_intermediate_files(output_dir, run_id, rep_id)
 
+    # ── Mandatory pre-exit verification ──
+    # Before declaring success, verify that all output files are present,
+    # internally consistent, and safe from overwrites.  This is a hard
+    # gate: if verification fails, the function returns False so the CLI
+    # can exit with a non-zero code.  The dispatcher uses this to decide
+    # whether to mark the job as complete or re-queue it.
+    ok = verify_final_output(
+        output_dir, run_id, rep_id,
+        n_bootstrap=n_bootstrap, n_methods=n_methods,
+        n_reg=n_reg, n_cls=n_cls, seed=seed,
+    )
+
+    total_time = time.time() - t0
     print(f"\n{'=' * 70}")
-    print(f"  DONE: {run_id} rep{rep_id:02d} ({total_time / 60:.1f} min)")
+    if ok:
+        print(f"  DONE (VERIFIED): {run_id} rep{rep_id:02d} ({total_time / 60:.1f} min)")
+    else:
+        print(f"  DONE (VERIFICATION FAILED): {run_id} rep{rep_id:02d} ({total_time / 60:.1f} min)")
     print(f"{'=' * 70}")
+    return ok
+
+
+# ============================================================================
+# Pre-exit output verification
+# ============================================================================
+
+def verify_final_output(
+    output_dir: str,
+    run_id: str,
+    rep_id: int,
+    *,
+    n_bootstrap: int,
+    n_methods: int,
+    n_reg: int,
+    n_cls: int,
+    seed: int,
+) -> bool:
+    """Verify that all output files are present, consistent, and complete.
+
+    This is called as the LAST step before a job declares success.
+    The dispatcher uses the return value (reflected in the exit code)
+    to decide whether to mark the job as complete or re-queue it.
+
+    Checks performed:
+    1. Final CSV exists and is readable.
+    2. Metadata sidecar JSON exists and is readable.
+    3. Metadata params match the current run's params.
+    4. Row count == n_bootstrap * n_methods.
+    5. All boot_ids 0..B-1 are present in the CSV.
+    6. No intermediate files remain (partial, checkpoint).
+    """
+    csv_path = os.path.join(
+        output_dir, f"bootstrap_raw_{run_id}_rep{rep_id:02d}.csv"
+    )
+    meta_file = _meta_path(output_dir, run_id, rep_id)
+    partial = _partial_csv_path(output_dir, run_id, rep_id)
+    ckpt = _checkpoint_path(output_dir, run_id, rep_id)
+
+    errors: List[str] = []
+
+    # 1. Final CSV exists and is readable
+    if not os.path.isfile(csv_path):
+        errors.append(f"Final CSV missing: {csv_path}")
+    else:
+        try:
+            with open(csv_path, newline="") as f:
+                reader = csv.DictReader(f)
+                rows = list(reader)
+        except Exception as e:
+            errors.append(f"Final CSV unreadable: {e}")
+            rows = []
+
+        if rows:
+            # 4. Row count
+            expected_rows = n_bootstrap * n_methods
+            if len(rows) != expected_rows:
+                errors.append(
+                    f"Row count mismatch: got {len(rows)}, "
+                    f"expected {expected_rows} ({n_bootstrap} x {n_methods})"
+                )
+
+            # 5. All boot_ids present
+            boot_ids = set(int(r["boot_id"]) for r in rows if r.get("boot_id"))
+            expected_boots = set(range(n_bootstrap))
+            missing_boots = expected_boots - boot_ids
+            if missing_boots:
+                errors.append(
+                    f"Missing boot_ids: {sorted(missing_boots)} "
+                    f"({len(missing_boots)} of {n_bootstrap})"
+                )
+
+            # Check all rows have non-empty method
+            empty_method = sum(1 for r in rows if not (r.get("method") or "").strip())
+            if empty_method:
+                errors.append(f"{empty_method} rows with empty method field")
+
+    # 2. Metadata sidecar exists and is readable
+    if not os.path.isfile(meta_file):
+        errors.append(f"Metadata sidecar missing: {meta_file}")
+    else:
+        meta = load_metadata(output_dir, run_id, rep_id)
+        if meta is None:
+            errors.append("Metadata sidecar unreadable")
+        else:
+            # 3. Metadata params match
+            if meta.get("n_bootstrap") != n_bootstrap:
+                errors.append(
+                    f"Metadata n_bootstrap={meta.get('n_bootstrap')} "
+                    f"!= expected {n_bootstrap}"
+                )
+            if meta.get("n_reg") != n_reg:
+                errors.append(
+                    f"Metadata n_reg={meta.get('n_reg')} != expected {n_reg}"
+                )
+            if meta.get("n_cls") != n_cls:
+                errors.append(
+                    f"Metadata n_cls={meta.get('n_cls')} != expected {n_cls}"
+                )
+            if meta.get("seed") != seed:
+                errors.append(
+                    f"Metadata seed={meta.get('seed')} != expected {seed}"
+                )
+
+    # 6. No stale intermediate files
+    if os.path.isfile(partial):
+        errors.append(f"Stale partial CSV still exists: {partial}")
+    if os.path.isfile(ckpt):
+        errors.append(f"Stale checkpoint still exists: {ckpt}")
+
+    if errors:
+        print(f"\n  [VERIFY FAILED] {len(errors)} issue(s):")
+        for e in errors:
+            print(f"    - {e}")
+        return False
+
+    print(f"  [VERIFY OK] CSV + metadata present, "
+          f"{n_bootstrap}x{n_methods}={n_bootstrap * n_methods} rows, "
+          f"all boot_ids 0..{n_bootstrap - 1} present")
+    return True
 
 
 # ============================================================================
@@ -1295,7 +1431,7 @@ def main():
 
     args = parser.parse_args()
 
-    run_bootstrap_evaluation(
+    ok = run_bootstrap_evaluation(
         data_dir=args.data_dir,
         experiments_dir=args.experiments_dir,
         output_dir=args.output_dir,
@@ -1306,6 +1442,8 @@ def main():
         n_cls=args.n_cls,
         seed=args.seed,
     )
+    # Exit code 0 = verified success, 1 = verification failed
+    sys.exit(0 if ok else 1)
 
 
 if __name__ == "__main__":
