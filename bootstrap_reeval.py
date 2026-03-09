@@ -142,6 +142,17 @@ def read_experiment_config(
     cache_dir = cfg.get("files", {}).get("cache_dir", "replicate_cache_seed2026")
     objectives = cfg.get("solver", {}).get("objectives", ["mmd", "sinkhorn"])
 
+    # Normalize cache_dir: configs may contain absolute paths from another
+    # server (e.g. /home/jupyter-pbranco/...).  If the stored path doesn't
+    # exist locally, resolve the cache directory name relative to the
+    # project root (parent of experiments_dir).
+    if not os.path.isdir(cache_dir):
+        project_root = os.path.dirname(os.path.abspath(experiments_dir))
+        cache_name = os.path.basename(cache_dir.rstrip("/"))
+        local_candidate = os.path.join(project_root, cache_name)
+        if os.path.isdir(local_candidate):
+            cache_dir = local_candidate
+
     return {
         "space": space,
         "k": k,
