@@ -719,6 +719,7 @@ def save_metadata(
     *,
     exp_cfg: Dict[str, Any],
     n_bootstrap: int,
+    n_bootstrap_completed: int,
     n_reg: int,
     n_cls: int,
     seed: int,
@@ -734,6 +735,7 @@ def save_metadata(
     Captures all parameters needed to interpret the results and detect
     configuration mismatches on subsequent runs.
     """
+    complete = (n_bootstrap_completed >= n_bootstrap)
     meta = {
         "run_id": run_id,
         "rep_id": rep_id,
@@ -741,6 +743,8 @@ def save_metadata(
         "k": exp_cfg.get("k"),
         "constraint_mode": exp_cfg.get("constraint_mode"),
         "n_bootstrap": n_bootstrap,
+        "n_bootstrap_completed": n_bootstrap_completed,
+        "complete": complete,
         "n_reg": n_reg,
         "n_cls": n_cls,
         "seed": seed,
@@ -919,9 +923,19 @@ def _check_existing_and_handle(
         and meta.get("seed") == seed
     )
 
-    if params_match:
+    if params_match and meta.get("complete", False):
         print(f"  [skip] Final output already exists with matching params: {csv_path}")
         return True
+
+    if params_match and not meta.get("complete", False):
+        # Intermediate snapshot from a previous interrupted run.
+        # Resume to complete the remaining draws — checkpoint is still intact.
+        n_prev = meta.get("n_bootstrap_completed", "?")
+        print(
+            f"  [resume] Partial snapshot exists "
+            f"({n_prev}/{n_bootstrap} draws) — resuming"
+        )
+        return False
 
     # Params differ — back up old results and re-run with new params
     print(
@@ -1232,13 +1246,43 @@ def run_bootstrap_evaluation(
                 n_cls=n_cls, seed=seed,
             )
 
+            # ── Produce a clean, stand-alone snapshot after every draw ──
+            # This writes a deduplicated final CSV + metadata JSON so that
+            # results are immediately usable even if the job is interrupted.
+            # The metadata records n_bootstrap_completed and complete=False
+            # until all requested draws are done.
+            n_done = len(completed_boots)
+            snap_path = finalize_output(
+                output_dir, run_id, rep_id,
+                n_bootstrap=n_done, n_methods=n_methods,
+            )
+            if snap_path:
+                method_names = sorted(methods.keys())
+                n_pf = len([m for m in method_names if m not in BASELINE_METHODS])
+                n_bl = len([m for m in method_names if m in BASELINE_METHODS])
+                save_metadata(
+                    output_dir, run_id, rep_id,
+                    exp_cfg=exp_cfg,
+                    n_bootstrap=n_bootstrap,
+                    n_bootstrap_completed=n_done,
+                    n_reg=n_reg,
+                    n_cls=n_cls,
+                    seed=seed,
+                    methods=method_names,
+                    n_pareto_front=n_pf,
+                    n_baselines=n_bl,
+                    total_rows=n_done * n_methods,
+                    elapsed_s=time.time() - t0,
+                    csv_path=snap_path,
+                )
+
         dt_draw = time.time() - t_draw
         n_done = len(completed_boots)
         if n_done % 5 == 0 or n_done == 1 or n_done == n_bootstrap:
             print(
                 f"    boot {n_done}/{n_bootstrap} "
                 f"({n_features} feat, {n_methods} methods, "
-                f"{dt_draw:.1f}s) [checkpointed]",
+                f"{dt_draw:.1f}s) [snapshot saved]",
                 flush=True,
             )
 
@@ -1270,6 +1314,7 @@ def run_bootstrap_evaluation(
             output_dir, run_id, rep_id,
             exp_cfg=exp_cfg,
             n_bootstrap=n_bootstrap,
+            n_bootstrap_completed=n_boots_total,
             n_reg=n_reg,
             n_cls=n_cls,
             seed=seed,

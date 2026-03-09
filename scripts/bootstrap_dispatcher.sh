@@ -127,12 +127,14 @@ fi
 
 is_job_complete() {
     # A job is only complete when BOTH final CSV and metadata sidecar exist
+    # AND the metadata records "complete": true (not a partial snapshot).
     local RUN_ID=$1
     local REP_ID=$2
     local REP_FMT=$(printf "%02d" "$REP_ID")
     local CSV="$RESULTS_DIR/bootstrap_raw_${RUN_ID}_rep${REP_FMT}.csv"
     local META="$RESULTS_DIR/bootstrap_meta_${RUN_ID}_rep${REP_FMT}.json"
-    [ -f "$CSV" ] && [ -f "$META" ]
+    [ -f "$CSV" ] && [ -f "$META" ] && \
+        python3 -c "import json,sys; m=json.load(open('${META}')); sys.exit(0 if m.get('complete',False) else 1)" 2>/dev/null
 }
 
 cleanup_finished() {
