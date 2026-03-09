@@ -10,9 +10,13 @@
 # - Failed jobs are re-queued up to MAX_RETRIES times before being permanently
 #   logged to FAILED_LOG.
 #
-# Usage: bash scripts/bootstrap_dispatcher.sh [MAX_PARALLEL]
+# Usage: bash scripts/bootstrap_dispatcher.sh [MAX_PARALLEL] [JOBS_FILE]
+#   MAX_PARALLEL  — max tmux windows at a time (default 64)
+#   JOBS_FILE     — optional pre-built job list (one "run_id rep_id" per line).
+#                   If omitted, jobs are discovered automatically.
 
-MAX_PARALLEL=${1:-63}
+MAX_PARALLEL=${1:-64}
+JOBS_FILE_ARG="${2:-}"
 MAX_RETRIES=3
 SESSION=$(tmux display-message -p "#{session_name}")
 
@@ -27,11 +31,17 @@ source ~/Coreset_Codes/venv/bin/activate
 
 RESULTS_DIR="$HOME/Coreset_Codes/bootstrap_results"
 FAILED_LOG="$RESULTS_DIR/_failed_jobs.log"
+EXPERIMENTS_DIR="$HOME/Coreset_Codes/experiments_v2"
 mkdir -p "$RESULTS_DIR"
 
 # ── Build job list ──
-JOBS_FILE=$(mktemp)
-python3 -c "
+if [ -n "$JOBS_FILE_ARG" ] && [ -f "$JOBS_FILE_ARG" ]; then
+    echo "Using pre-built jobs file: $JOBS_FILE_ARG"
+    JOBS_SOURCE="$JOBS_FILE_ARG"
+else
+    echo "Auto-discovering jobs from experiments_v2/ ..."
+    JOBS_SOURCE=$(mktemp)
+    python3 -c "
 import os, json, sys
 
 exp_dir = os.path.expanduser('~/Coreset_Codes/experiments_v2')
@@ -67,15 +77,18 @@ for run_id in sorted(os.listdir(exp_dir)):
         count += 1
 
 print('# Total: %d' % count, file=sys.stderr)
-" > "$JOBS_FILE" 2>&1
+" > "$JOBS_SOURCE" 2>&1
+fi
 
 declare -a ALL_JOBS
 while IFS= read -r line; do
     [[ "$line" == \#* ]] && continue
     [[ -z "$line" ]] && continue
     ALL_JOBS+=("$line")
-done < "$JOBS_FILE"
-rm -f "$JOBS_FILE"
+done < "$JOBS_SOURCE"
+
+# Clean up temp file only if we created it
+[ -z "$JOBS_FILE_ARG" ] && rm -f "$JOBS_SOURCE"
 
 TOTAL=${#ALL_JOBS[@]}
 echo "Total incomplete jobs: $TOTAL"
@@ -168,6 +181,20 @@ cleanup_finished() {
     fi
 }
 
+get_n_bootstrap() {
+    # Determine --n-bootstrap from experiment config: B=20 for k>=200, B=30 otherwise.
+    local RUN_ID=$1
+    local REP_ID=$2
+    local CFG_PATH="${EXPERIMENTS_DIR}/${RUN_ID}/rep$(printf '%02d' "$REP_ID")/config.json"
+    local K_VAL
+    K_VAL=$(python3 -c "import json; print(json.load(open('${CFG_PATH}'))['solver']['k'])" 2>/dev/null)
+    if [ -n "$K_VAL" ] && [ "$K_VAL" -ge 200 ] 2>/dev/null; then
+        echo 20
+    else
+        echo 30
+    fi
+}
+
 launch_job() {
     local RUN_ID=$1
     local REP_ID=$2
@@ -180,7 +207,9 @@ launch_job() {
     fi
 
     local REP_FMT=$(printf "%02d" "$REP_ID")
-    local CMD="cd ~/Coreset_Codes && source ~/Coreset_Codes/venv/bin/activate && export OMP_NUM_THREADS=4 MKL_NUM_THREADS=4 OPENBLAS_NUM_THREADS=4 NUMEXPR_NUM_THREADS=4 && python3 bootstrap_reeval.py --run-id ${RUN_ID} --rep-id ${REP_ID} --n-bootstrap 30 --n-reg 5 --n-cls 5 --output-dir bootstrap_results/ 2>&1 | tee bootstrap_results/log_${RUN_ID}_rep${REP_FMT}.txt"
+    local N_BOOT
+    N_BOOT=$(get_n_bootstrap "$RUN_ID" "$REP_ID")
+    local CMD="cd ~/Coreset_Codes && source ~/Coreset_Codes/venv/bin/activate && export OMP_NUM_THREADS=4 MKL_NUM_THREADS=4 OPENBLAS_NUM_THREADS=4 NUMEXPR_NUM_THREADS=4 && python3 bootstrap_reeval.py --run-id ${RUN_ID} --rep-id ${REP_ID} --n-bootstrap ${N_BOOT} --n-reg 5 --n-cls 5 --output-dir bootstrap_results/ 2>&1 | tee bootstrap_results/log_${RUN_ID}_rep${REP_FMT}.txt"
 
     tmux new-window -t "$SESSION" -n "$WNAME"
     tmux send-keys -t "$SESSION:$WNAME" "$CMD" Enter
