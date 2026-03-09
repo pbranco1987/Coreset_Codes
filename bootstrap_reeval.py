@@ -901,7 +901,7 @@ def run_bootstrap_evaluation(
     n_reg: int,
     n_cls: int,
     seed: int,
-) -> None:
+) -> bool:
     """Run bootstrap target-variable evaluation for a single (run_id, rep_id).
 
     Checkpoint system: after each bootstrap draw, rows are appended to a
@@ -947,7 +947,7 @@ def run_bootstrap_evaluation(
         output_dir, run_id, rep_id,
         n_bootstrap, n_reg, n_cls, seed,
     ):
-        return
+        return True   # already complete — report success to dispatcher
 
     # Load checkpoint — which draws are already done?
     completed_boots, ckpt_cfg = load_checkpoint(output_dir, run_id, rep_id)
