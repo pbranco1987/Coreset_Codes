@@ -506,6 +506,96 @@ def _partial_csv_path(output_dir: str, run_id: str, rep_id: int) -> str:
     )
 
 
+# ── Work-in-progress (WIP) draw tracking ──────────────────────────────
+# WIP files capture per-method results within the *current* draw so that
+# partial progress is visible even before the draw completes.
+WIP_FLUSH_INTERVAL = 5  # flush WIP CSV every N methods
+
+
+def _wip_csv_path(output_dir: str, run_id: str, rep_id: int) -> str:
+    """Path for WIP CSV (current in-progress draw only)."""
+    return os.path.join(
+        output_dir, f".wip_{run_id}_rep{rep_id:02d}.csv"
+    )
+
+
+def _wip_meta_path(output_dir: str, run_id: str, rep_id: int) -> str:
+    """Path for WIP metadata JSON (current in-progress draw only)."""
+    return os.path.join(
+        output_dir, f".wip_meta_{run_id}_rep{rep_id:02d}.json"
+    )
+
+
+def flush_wip(
+    output_dir: str, run_id: str, rep_id: int,
+    rows: List[Dict], fieldnames: List[str],
+    *,
+    boot_id: int,
+    draw_index: int,
+    n_methods_total: int,
+    n_methods_completed: int,
+    n_draws_completed: int,
+    n_draws_total: int,
+) -> None:
+    """Flush WIP buffer to CSV and update WIP metadata atomically.
+
+    Called every ``WIP_FLUSH_INTERVAL`` methods within a draw so that
+    partial results are visible on disk before the full draw completes.
+    """
+    # Append rows to WIP CSV (with fsync)
+    wip_csv = _wip_csv_path(output_dir, run_id, rep_id)
+    write_header = not os.path.isfile(wip_csv)
+    with open(wip_csv, "a", newline="") as f:
+        writer = csv.DictWriter(
+            f, fieldnames=fieldnames,
+            restval="", extrasaction="ignore",
+        )
+        if write_header:
+            writer.writeheader()
+        writer.writerows(rows)
+        f.flush()
+        os.fsync(f.fileno())
+
+    # Atomic WIP metadata update
+    wip_meta = _wip_meta_path(output_dir, run_id, rep_id)
+    meta = {
+        "run_id": run_id,
+        "rep_id": rep_id,
+        "boot_id": boot_id,
+        "draw_index": draw_index,
+        "n_methods_total": n_methods_total,
+        "n_methods_completed": n_methods_completed,
+        "draw_complete": n_methods_completed >= n_methods_total,
+        "n_draws_completed": n_draws_completed,
+        "n_draws_total": n_draws_total,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "hostname": platform.node(),
+    }
+    fd, tmp = tempfile.mkstemp(dir=output_dir, suffix=".wip.tmp")
+    try:
+        with os.fdopen(fd, "w") as f:
+            json.dump(meta, f, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, wip_meta)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
+def clear_wip(output_dir: str, run_id: str, rep_id: int) -> None:
+    """Delete WIP files (called at start of each draw and after completion)."""
+    for path in [_wip_csv_path(output_dir, run_id, rep_id),
+                 _wip_meta_path(output_dir, run_id, rep_id)]:
+        try:
+            os.unlink(path)
+        except FileNotFoundError:
+            pass
+
+
 def load_checkpoint(
     output_dir: str, run_id: str, rep_id: int,
 ) -> Tuple[set, Optional[Dict[str, Any]]]:
@@ -1190,8 +1280,12 @@ def run_bootstrap_evaluation(
         }
 
         draw_rows: List[Dict] = []
+        wip_buffer: List[Dict] = []
 
-        for method_name, S_idx in methods.items():
+        # Clear any leftover WIP from a previous crash mid-draw
+        clear_wip(output_dir, run_id, rep_id)
+
+        for m_idx, (method_name, S_idx) in enumerate(methods.items()):
             t_method = time.time()
 
             X_S = X_eval[S_idx]
@@ -1233,8 +1327,37 @@ def run_bootstrap_evaluation(
             row["cls_targets"] = ";".join(sample.cls_targets)
 
             draw_rows.append(row)
+            wip_buffer.append(row)
 
-        # Append rows to partial CSV + update checkpoint
+            # ── Track 2: flush WIP every WIP_FLUSH_INTERVAL methods ──
+            if len(wip_buffer) >= WIP_FLUSH_INTERVAL:
+                flush_wip(
+                    output_dir, run_id, rep_id,
+                    wip_buffer, fieldnames,
+                    boot_id=sample.boot_id,
+                    draw_index=b_idx,
+                    n_methods_total=n_methods,
+                    n_methods_completed=m_idx + 1,
+                    n_draws_completed=len(completed_boots),
+                    n_draws_total=n_bootstrap,
+                )
+                wip_buffer = []
+
+        # Flush any remaining WIP rows (tail < WIP_FLUSH_INTERVAL methods)
+        if wip_buffer:
+            flush_wip(
+                output_dir, run_id, rep_id,
+                wip_buffer, fieldnames,
+                boot_id=sample.boot_id,
+                draw_index=b_idx,
+                n_methods_total=n_methods,
+                n_methods_completed=len(draw_rows),
+                n_draws_completed=len(completed_boots),
+                n_draws_total=n_bootstrap,
+            )
+            wip_buffer = []
+
+        # ── Track 1: Append rows to partial CSV + update checkpoint ──
         if draw_rows:
             append_rows_to_partial(
                 output_dir, run_id, rep_id, draw_rows, fieldnames
@@ -1275,6 +1398,9 @@ def run_bootstrap_evaluation(
                     elapsed_s=time.time() - t0,
                     csv_path=snap_path,
                 )
+
+        # Clean up WIP files — draw data now lives in Track 1
+        clear_wip(output_dir, run_id, rep_id)
 
         dt_draw = time.time() - t_draw
         n_done = len(completed_boots)
