@@ -855,13 +855,20 @@ def _check_existing_and_handle(
                 and ckpt_cfg.get("seed") == seed
             )
             if ckpt_match:
+                # Power died between finalize_output and save_metadata.
+                # The CSV is likely valid, but metadata was never written.
+                # Do NOT return True here — the dispatcher requires both
+                # CSV + metadata to exist.  Instead, return False to let
+                # the normal flow resume: checkpoint has all draws done,
+                # for-loop skips everything, finalize re-writes CSV,
+                # and save_metadata finally writes the missing sidecar.
+                # Crucially, do NOT clean up intermediates — the
+                # checkpoint is needed for the resume to work.
                 print(
                     f"  [recovery] Final CSV exists without metadata but "
-                    f"checkpoint config matches — accepting CSV"
+                    f"checkpoint config matches — resuming to write metadata"
                 )
-                # Clean up stale checkpoint/partial (finalization had completed)
-                cleanup_intermediate_files(output_dir, run_id, rep_id)
-                return True
+                return False
 
         print(f"  [safety] Found existing CSV without metadata — backing up")
         _backup_existing_output(output_dir, run_id, rep_id)
