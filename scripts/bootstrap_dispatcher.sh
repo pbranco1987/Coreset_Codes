@@ -184,17 +184,9 @@ cleanup_finished() {
 }
 
 get_n_bootstrap() {
-    # Determine --n-bootstrap from experiment config: B=20 for k>=200, B=30 otherwise.
-    local RUN_ID=$1
-    local REP_ID=$2
-    local CFG_PATH="${EXPERIMENTS_DIR}/${RUN_ID}/rep$(printf '%02d' "$REP_ID")/config.json"
-    local K_VAL
-    K_VAL=$(python3 -c "import json; print(json.load(open('${CFG_PATH}'))['solver']['k'])" 2>/dev/null)
-    if [ -n "$K_VAL" ] && [ "$K_VAL" -ge 200 ] 2>/dev/null; then
-        echo 20
-    else
-        echo 30
-    fi
+    # B=50 draws for all k values (k=30,50,100,200,300).
+    # k>=400 are excluded at job-list build time.
+    echo 50
 }
 
 launch_job() {
