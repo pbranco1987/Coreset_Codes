@@ -169,6 +169,21 @@ def read_experiment_config(
 # Loading utilities
 # ============================================================================
 
+def _resolve_base_cache(cache_dir: str) -> str:
+    """Derive the base replicate cache from a dim-specific cache path.
+
+    Dimension-sweep caches (e.g. ``replicate_cache_seed2026_pca_d8``) only
+    contain ``assets.npz`` — ``splits.npz`` lives in the base cache
+    (``replicate_cache_seed2026``).  Strip the ``_{space}_d{dim}`` suffix
+    to find the base directory.
+    """
+    import re
+    base = re.sub(r"_(vae|pca|raw)_d\d+$", "", cache_dir)
+    if base != cache_dir and os.path.isdir(base):
+        return base
+    return cache_dir
+
+
 def load_splits(cache_dir: str, rep_id: int) -> Dict[str, np.ndarray]:
     """Load eval train/test split indices from replicate cache."""
     inner = os.path.join(cache_dir, os.path.basename(cache_dir))
@@ -176,6 +191,17 @@ def load_splits(cache_dir: str, rep_id: int) -> Dict[str, np.ndarray]:
         cache_dir = inner
 
     splits_path = os.path.join(cache_dir, f"rep{rep_id:02d}", "splits.npz")
+
+    # Dimension-specific caches may not contain splits — fall back to
+    # the base cache (e.g. replicate_cache_seed2026).
+    if not os.path.isfile(splits_path):
+        base_cache = _resolve_base_cache(cache_dir)
+        if base_cache != cache_dir:
+            inner_base = os.path.join(base_cache, os.path.basename(base_cache))
+            if os.path.isdir(inner_base):
+                base_cache = inner_base
+            splits_path = os.path.join(base_cache, f"rep{rep_id:02d}", "splits.npz")
+
     if not os.path.isfile(splits_path):
         raise FileNotFoundError(f"Splits not found: {splits_path}")
 
