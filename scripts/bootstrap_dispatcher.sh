@@ -51,6 +51,9 @@ for run_id in sorted(os.listdir(exp_dir)):
             continue
         with open(config_path) as f:
             cfg = json.load(f)
+        k = cfg['solver']['k']
+        if k >= 400:
+            continue
         space = cfg['space']
         pareto_path = os.path.join(rep_dir, 'results', '%s_pareto.npz' % space)
         if not os.path.isfile(pareto_path):
