@@ -37,7 +37,7 @@ from ..optimization.nsga2_internal import nsga2_optimize
 from ..optimization.selection import select_pareto_representatives
 from ..utils.random import set_global_seed
 from ..utils.debug_timing import timer
-from .saver import ParetoFrontData, ResultsSaver
+from .saver import ParetoFrontData, ResultsSaver, load_pareto_front
 
 # Mixin imports
 from ._runner_eval import EvalMixin, _build_multitarget_y
@@ -434,7 +434,29 @@ class ExperimentRunner(R0Mixin, DiagnosticsMixin, EffortMixin, EvalMixin):
             # NSGA-II (requested space)
             # ------------------------------------------------------------
             space = cfg.space  # always defined for downstream use
-            if cfg.solver.enabled:
+
+            # Check if pareto front already exists (NSGA-II completed but
+            # eval was interrupted, e.g. by power loss).  Skip NSGA-II and
+            # reload the saved front to run only the eval phase.
+            _pareto_path = os.path.join(
+                self.saver.results_dir, f"{space}_pareto.npz"
+            )
+            _ckpt_path = os.path.join(
+                self.saver.results_dir, f"{space}_nsga2_checkpoint.npz"
+            )
+            _has_pareto = os.path.isfile(_pareto_path)
+            _has_ckpt = os.path.isfile(_ckpt_path)
+
+            if _has_pareto and not _has_ckpt and cfg.solver.enabled:
+                # NSGA-II already finished (checkpoint was cleaned up) but
+                # downstream eval did not complete.  Reload the front.
+                print(
+                    f"[resume] Found existing {space}_pareto.npz without "
+                    f"checkpoint — skipping NSGA-II, running eval only",
+                    flush=True,
+                )
+                pareto_data = load_pareto_front(_pareto_path)
+            elif cfg.solver.enabled:
                 algo = cfg.solver.get_algorithm()
                 _tp = self._phase_start()
                 with timer.section(f"{algo.upper()} optimization", space=space, k=cfg.solver.k):
@@ -446,8 +468,7 @@ class ExperimentRunner(R0Mixin, DiagnosticsMixin, EffortMixin, EvalMixin):
                         seed=rep_seed,
                     )
                 self._phase_end("solver", _tp)
-
-            self.saver.save_pareto_front(space, pareto_data)
+                self.saver.save_pareto_front(space, pareto_data)
 
             # Evaluate the entire final front in raw space to enable
             # objective--metric alignment diagnostics.
@@ -641,6 +662,16 @@ class ExperimentRunner(R0Mixin, DiagnosticsMixin, EffortMixin, EvalMixin):
     ) -> ParetoFrontData:
         cfg = self.cfg
 
+        # Checkpoint path for NSGA-II power-loss recovery
+        _ckpt_path = os.path.join(
+            self.saver.results_dir, f"{space}_nsga2_checkpoint.npz"
+        )
+
+        # Generation log directory (optional)
+        _gen_log_dir = None
+        if getattr(cfg.solver, "enable_generation_log", False):
+            _gen_log_dir = os.path.join(self.saver.results_dir, "generations")
+
         X_pareto, F_pareto, repair_stats = nsga2_optimize(
             computer=computer,
             projector=projector,
@@ -651,10 +682,23 @@ class ExperimentRunner(R0Mixin, DiagnosticsMixin, EffortMixin, EvalMixin):
             n_gen=int(cfg.solver.n_gen),
             crossover_prob=float(cfg.solver.crossover_prob),
             mutation_prob=float(cfg.solver.mutation_prob),
+            mutation_swaps=int(getattr(cfg.solver, "mutation_swaps", 1)),
             use_quota=bool(cfg.geo.use_quota_constraints),
             enforce_exact_k=bool(cfg.solver.enforce_exact_k),
             seed=seed,
             verbose=bool(cfg.solver.verbose),
+            checkpoint_path=_ckpt_path,
+            checkpoint_every=10,
+            convergence_patience=int(getattr(cfg.solver, "convergence_patience", 0)),
+            convergence_rtol=float(getattr(cfg.solver, "convergence_rtol", 1e-4)),
+            generation_log_dir=_gen_log_dir,
+            snapshot_every=int(getattr(cfg.solver, "generation_log_snapshot_every", 25)),
+            adaptive_tau_check_every=int(getattr(cfg.solver, "adaptive_tau_check_every", 0)),
+            adaptive_tau_factor=float(getattr(cfg.solver, "adaptive_tau_factor", 1.5)),
+            adaptive_tau_max=float(getattr(cfg.solver, "adaptive_tau_max", 0.20)),
+            adaptive_tau_min_nondom=int(getattr(cfg.solver, "adaptive_tau_min_nondom", 3)),
+            greedy_kl_init=bool(getattr(cfg.solver, "greedy_kl_init", False)),
+            auto_tau_multiplier=float(getattr(cfg.solver, "auto_tau_multiplier", 1.5)),
         )
 
         objectives = [str(o) for o in cfg.solver.objectives]

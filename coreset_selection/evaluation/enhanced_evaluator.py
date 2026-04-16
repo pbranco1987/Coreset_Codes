@@ -117,18 +117,35 @@ class EnhancedRawSpaceEvaluator:
         S_idx: np.ndarray,
         state_labels: Optional[np.ndarray],
     ):
-        """Internal: fit KRR on E_train, predict on E_test."""
+        """Internal: fit KRR on E_train, predict on E_test.
+
+        Excludes S ∩ E from the evaluation set so that no landmark
+        evaluates itself (mirrors the fix in RawSpaceEvaluator._get_nystrom).
+        """
         if self.base.y is None:
             return None, None, None
 
+        S_idx = np.asarray(S_idx, dtype=int)
+
+        # --- Exclude S ∩ E from evaluation set ---
+        eval_idx_clean = self.base.eval_idx[
+            ~np.isin(self.base.eval_idx, S_idx)
+        ]
+        eval_train_clean = self.base.eval_train_idx[
+            ~np.isin(self.base.eval_train_idx, S_idx)
+        ]
+        eval_test_clean = self.base.eval_test_idx[
+            ~np.isin(self.base.eval_test_idx, S_idx)
+        ]
+
         N = self.base.X_raw.shape[0]
         pos = np.full(N, -1, dtype=int)
-        pos[self.base.eval_idx] = np.arange(self.base.eval_idx.size, dtype=int)
+        pos[eval_idx_clean] = np.arange(eval_idx_clean.size, dtype=int)
 
-        tr_pos = pos[self.base.eval_train_idx]; tr_pos = tr_pos[tr_pos >= 0]
-        te_pos = pos[self.base.eval_test_idx];  te_pos = te_pos[te_pos >= 0]
+        tr_pos = pos[eval_train_clean]; tr_pos = tr_pos[tr_pos >= 0]
+        te_pos = pos[eval_test_clean];  te_pos = te_pos[te_pos >= 0]
 
-        X_E = self.base.X_raw[self.base.eval_idx]
+        X_E = self.base.X_raw[eval_idx_clean]
         X_S = self.base.X_raw[S_idx]
 
         C, W, lambda_nys = _nystrom_components(X_E, X_S, self.base.sigma_sq)
@@ -141,8 +158,8 @@ class EnhancedRawSpaceEvaluator:
         if y.ndim == 1:
             y = y.reshape(-1, 1)
 
-        y_tr = y[self.base.eval_train_idx]
-        y_te = y[self.base.eval_test_idx]
+        y_tr = y[eval_train_clean]
+        y_te = y[eval_test_clean]
 
         lambdas = np.logspace(-6, 6, 13)
         T = y.shape[1]
@@ -158,7 +175,7 @@ class EnhancedRawSpaceEvaluator:
             w, _ = _safe_cholesky_solve(A, b)
             y_pred_te[:, t] = Phi_te @ w
 
-        te_states = state_labels[self.base.eval_test_idx] if state_labels is not None else None
+        te_states = state_labels[eval_test_clean] if state_labels is not None else None
         return y_pred_te, y_te, te_states
 
     def per_state_detail(

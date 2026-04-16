@@ -46,17 +46,27 @@ from ._raw_nystrom import (
 
 @dataclass
 class _NystromCache:
-    """Cached Nyström decomposition for a single landmark set S."""
+    """Cached Nyström decomposition for a single landmark set S.
+
+    After the S ∩ E exclusion fix, all arrays are computed on E_clean = E \\ S
+    so that no landmark evaluates itself.  The ``eval_*_clean`` index arrays
+    record which absolute indices were actually used.
+    """
     S_key: int           # hash of S_idx for cache invalidation
-    C: np.ndarray        # (|E|, k)
+    C: np.ndarray        # (|E_clean|, k)
     W: np.ndarray        # (k, k)
     lambda_nys: float
-    K_hat: np.ndarray    # (|E|, |E|)  — only built when needed
-    Phi: np.ndarray      # (|E|, k)
-    Phi_tr: np.ndarray   # (n_train, k)
-    Phi_te: np.ndarray   # (n_test, k)
+    K_hat: np.ndarray    # (|E_clean|, |E_clean|)
+    K_EE_clean: np.ndarray  # (|E_clean|, |E_clean|) — true Gram on E_clean
+    Phi: np.ndarray      # (|E_clean|, k)
+    Phi_tr: np.ndarray   # (n_train_clean, k)
+    Phi_te: np.ndarray   # (n_test_clean, k)
     tr_pos: np.ndarray
     te_pos: np.ndarray
+    eval_idx_clean: np.ndarray       # absolute indices of E_clean
+    eval_train_clean: np.ndarray     # absolute indices of E_train \ S
+    eval_test_clean: np.ndarray      # absolute indices of E_test \ S
+    n_excluded: int                  # |S ∩ E| for diagnostics
 
 
 @dataclass
@@ -168,36 +178,61 @@ class RawSpaceEvaluator:
     # ------------------------------------------------------------------
 
     def _get_nystrom(self, S_idx: np.ndarray) -> _NystromCache:
-        """Return cached Nyström decomposition for S, recomputing only if S changed."""
+        """Return cached Nyström decomposition for S, recomputing only if S changed.
+
+        To prevent data leakage (landmarks evaluating themselves), any
+        indices in S that also appear in eval_idx are excluded from the
+        evaluation set before computing C, K_hat, Phi, and K_EE_clean.
+        """
         S_idx = np.asarray(S_idx, dtype=int)
         s_key = hash(S_idx.tobytes())
 
         if self._nys_cache is not None and self._nys_cache.S_key == s_key:
             return self._nys_cache
 
-        X_E = self.X_raw[self.eval_idx]
+        # --- Exclude S ∩ E from the evaluation set ---
+        S_mask = np.isin(self.eval_idx, S_idx)
+        n_excluded = int(S_mask.sum())
+        eval_idx_clean = self.eval_idx[~S_mask]
+
+        eval_train_clean = self.eval_train_idx[
+            ~np.isin(self.eval_train_idx, S_idx)
+        ]
+        eval_test_clean = self.eval_test_idx[
+            ~np.isin(self.eval_test_idx, S_idx)
+        ]
+
+        X_E = self.X_raw[eval_idx_clean]
         X_S = self.X_raw[S_idx]
 
         C, W, lambda_nys = _nystrom_components(X_E, X_S, self.sigma_sq)
         K_hat = _nystrom_approx_gram(C, W, lambda_nys)
         Phi = _nystrom_features(C, W, lambda_nys)
 
-        # Map absolute indices -> positions within eval_idx
+        # True Gram matrix on cleaned E (for nystrom_error / kpca_distortion)
+        K_EE_clean = _rbf_kernel(X_E, X_E, self.sigma_sq)
+
+        # Map absolute indices -> positions within eval_idx_clean
         N = self.X_raw.shape[0]
         pos = np.full(N, -1, dtype=int)
-        pos[self.eval_idx] = np.arange(self.eval_idx.size, dtype=int)
+        pos[eval_idx_clean] = np.arange(eval_idx_clean.size, dtype=int)
 
-        tr_pos = pos[self.eval_train_idx]
-        te_pos = pos[self.eval_test_idx]
+        tr_pos = pos[eval_train_clean]
+        te_pos = pos[eval_test_clean]
         tr_pos = tr_pos[tr_pos >= 0]
         te_pos = te_pos[te_pos >= 0]
 
         cache = _NystromCache(
             S_key=s_key,
             C=C, W=W, lambda_nys=lambda_nys,
-            K_hat=K_hat, Phi=Phi,
+            K_hat=K_hat, K_EE_clean=K_EE_clean,
+            Phi=Phi,
             Phi_tr=Phi[tr_pos], Phi_te=Phi[te_pos],
             tr_pos=tr_pos, te_pos=te_pos,
+            eval_idx_clean=eval_idx_clean,
+            eval_train_clean=eval_train_clean,
+            eval_test_clean=eval_test_clean,
+            n_excluded=n_excluded,
         )
         self._nys_cache = cache
         return cache
@@ -207,17 +242,25 @@ class RawSpaceEvaluator:
     # ------------------------------------------------------------------
 
     def nystrom_error(self, S_idx: np.ndarray) -> float:
-        """Relative Frobenius error e_Nys(S)."""
+        """Relative Frobenius error e_Nys(S).
+
+        Uses K_EE_clean (E with S-overlap removed) so that no landmark
+        evaluates itself.
+        """
         nys = self._get_nystrom(S_idx)
-        num = np.linalg.norm(self.K_EE - nys.K_hat, ord="fro")
-        den = np.linalg.norm(self.K_EE, ord="fro") + 1e-30
+        num = np.linalg.norm(nys.K_EE_clean - nys.K_hat, ord="fro")
+        den = np.linalg.norm(nys.K_EE_clean, ord="fro") + 1e-30
         return float(num / den)
 
     def kpca_distortion(self, S_idx: np.ndarray, r: int = 20) -> float:
-        """Kernel PCA top-r spectral distortion e_kPCA(S)."""
+        """Kernel PCA top-r spectral distortion e_kPCA(S).
+
+        Uses K_EE_clean (E with S-overlap removed) so that no landmark
+        evaluates itself.
+        """
         nys = self._get_nystrom(S_idx)
 
-        Kc = _center_gram(self.K_EE)
+        Kc = _center_gram(nys.K_EE_clean)
         Kc_hat = _center_gram(nys.K_hat)
 
         # Eigenvalues (ascending), then reverse to descending
@@ -242,22 +285,36 @@ class RawSpaceEvaluator:
         self,
         Phi_tr: np.ndarray,
         Phi_te: np.ndarray,
+        eval_train_idx: Optional[np.ndarray] = None,
+        eval_test_idx: Optional[np.ndarray] = None,
     ) -> Dict[str, float]:
         """Fit KRR on all targets using precomputed Phi splits.
 
         Shared by krr_rmse() and _state_conditioned_stability() to avoid
         duplicating the 5-fold ridge CV.
 
+        Parameters
+        ----------
+        eval_train_idx, eval_test_idx : ndarray or None
+            When supplied, use these (cleaned) absolute indices to slice y
+            so that row counts match Phi_tr / Phi_te.  If *None*, fall back
+            to ``self.eval_train_idx`` / ``self.eval_test_idx`` (legacy path).
+
         Returns per-target RMSE, lambda, and weight vectors.
         """
         if self.y is None:
             return {}, {}
 
+        if eval_train_idx is None:
+            eval_train_idx = self.eval_train_idx
+        if eval_test_idx is None:
+            eval_test_idx = self.eval_test_idx
+
         y = np.asarray(self.y)
         if y.ndim == 1:
             y = y.reshape(-1, 1)
-        y_tr = y[self.eval_train_idx]
-        y_te = y[self.eval_test_idx]
+        y_tr = y[eval_train_idx]
+        y_te = y[eval_test_idx]
 
         lambdas = np.logspace(-6, 6, 13)
         n_folds = 5
@@ -335,7 +392,11 @@ class RawSpaceEvaluator:
         if self.y is None:
             return {}
         nys = self._get_nystrom(S_idx)
-        out, _predictions = self._krr_fit_targets(nys.Phi_tr, nys.Phi_te)
+        out, _predictions = self._krr_fit_targets(
+            nys.Phi_tr, nys.Phi_te,
+            eval_train_idx=nys.eval_train_clean,
+            eval_test_idx=nys.eval_test_clean,
+        )
         return out
 
     def all_metrics(self, S_idx: np.ndarray) -> Dict[str, float]:
@@ -392,14 +453,19 @@ class RawSpaceEvaluator:
         out["nystrom_error"] = self.nystrom_error(S_idx)
         out["kpca_distortion"] = self.kpca_distortion(S_idx, r=20)
 
-        # KRR fit once — get both metrics and predictions
-        krr_out, predictions = self._krr_fit_targets(nys.Phi_tr, nys.Phi_te)
+        # KRR fit once — get both metrics and predictions (using cleaned indices)
+        krr_out, predictions = self._krr_fit_targets(
+            nys.Phi_tr, nys.Phi_te,
+            eval_train_idx=nys.eval_train_clean,
+            eval_test_idx=nys.eval_test_clean,
+        )
         out.update(krr_out)
         out["sigma_sq_raw"] = float(self.sigma_sq)
 
         # State-conditioned stability reusing predictions from KRR
         stability = self._state_conditioned_stability_from_predictions(
             predictions, state_labels,
+            eval_test_idx=nys.eval_test_clean,
         )
         out.update(stability)
 
@@ -409,6 +475,7 @@ class RawSpaceEvaluator:
         self,
         predictions: Dict[int, Tuple[np.ndarray, float]],
         state_labels: np.ndarray,
+        eval_test_idx: Optional[np.ndarray] = None,
     ) -> Dict[str, float]:
         """State-conditioned KPI stability using precomputed KRR predictions.
 
@@ -423,20 +490,29 @@ class RawSpaceEvaluator:
           - Macro-averaged RMSE / MAE / R² (mean over states)
           - Worst-group RMSE / MAE / R²
           - RMSE dispersion (std) and IQR across states
+
+        Parameters
+        ----------
+        eval_test_idx : ndarray or None
+            Cleaned test indices (S-overlap removed).  Falls back to
+            ``self.eval_test_idx`` when *None*.
         """
         from scipy.stats import kendalltau
 
         if self.y is None or not predictions:
             return {}
 
+        if eval_test_idx is None:
+            eval_test_idx = self.eval_test_idx
+
         state_labels = np.asarray(state_labels)
 
         y = np.asarray(self.y)
         if y.ndim == 1:
             y = y.reshape(-1, 1)
-        y_te = y[self.eval_test_idx]
+        y_te = y[eval_test_idx]
 
-        te_states = state_labels[self.eval_test_idx]
+        te_states = state_labels[eval_test_idx]
         unique_states = np.unique(te_states)
         if unique_states.size < 2:
             return {}
@@ -545,9 +621,14 @@ class RawSpaceEvaluator:
         if self.y is None:
             return {}
         nys = self._get_nystrom(S_idx)
-        _krr_out, predictions = self._krr_fit_targets(nys.Phi_tr, nys.Phi_te)
+        _krr_out, predictions = self._krr_fit_targets(
+            nys.Phi_tr, nys.Phi_te,
+            eval_train_idx=nys.eval_train_clean,
+            eval_test_idx=nys.eval_test_clean,
+        )
         return self._state_conditioned_stability_from_predictions(
             predictions, state_labels,
+            eval_test_idx=nys.eval_test_clean,
         )
 
     def multi_model_downstream(
@@ -586,8 +667,8 @@ class RawSpaceEvaluator:
         return evaluate_all_downstream_models(
             Phi_train=nys.Phi_tr,
             Phi_test=nys.Phi_te,
-            eval_train_idx=self.eval_train_idx,
-            eval_test_idx=self.eval_test_idx,
+            eval_train_idx=nys.eval_train_clean,
+            eval_test_idx=nys.eval_test_clean,
             regression_targets=regression_targets,
             classification_targets=classification_targets,
             seed=seed,

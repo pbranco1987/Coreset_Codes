@@ -155,7 +155,9 @@ def run_experiments(
             ks = [spec.k] if hasattr(spec, 'k') and spec.k is not None else k_values or K_GRID
         
         for k in ks:
-            run_name = f"{run_id}_k{k}" if len(ks) > 1 else run_id
+            # Always include _k{k} suffix so that parallel single-k
+            # launches never collide (matches run_scenario_standalone).
+            run_name = f"{run_id}_k{k}"
 
             # Determine replicates for this specific k value
             n_reps = spec.get_n_reps_for_k(k)

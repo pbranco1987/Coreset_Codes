@@ -242,7 +242,7 @@ class ResultsSaver:
     def __init__(self, base_dir: str, run_id: str, rep_id: int):
         """
         Initialize the ResultsSaver.
-        
+
         Parameters
         ----------
         base_dir : str
@@ -251,13 +251,37 @@ class ResultsSaver:
             Run identifier (e.g., "R1")
         rep_id : int
             Replicate identifier
+
+        Raises
+        ------
+        FileExistsError
+            If this (run_id, rep_id) already has completed results
+            (wall_clock.json exists) and CORESET_FORCE_OVERWRITE is not
+            set.  This prevents silent data loss from concurrent or
+            repeated launches that share the same output path.
         """
         self.base_dir = base_dir
         self.run_id = run_id
         self.rep_id = rep_id
-        
+
         # Create directory structure
         self.run_dir = os.path.join(base_dir, run_id, f"rep{rep_id:02d}")
+
+        # ── Overwrite guard ──────────────────────────────────────────
+        # If a previous run already completed in this directory,
+        # refuse to proceed unless explicitly forced.  The sentinel is
+        # wall_clock.json because it is the LAST file written by
+        # _finalize_with_timing — its presence means a full run exists.
+        _force = os.environ.get("CORESET_FORCE_OVERWRITE", "").strip()
+        _sentinel = os.path.join(self.run_dir, "results", "wall_clock.json")
+        if os.path.isfile(_sentinel) and _force not in ("1", "true", "yes"):
+            raise FileExistsError(
+                f"Completed results already exist at {self.run_dir}. "
+                f"Refusing to overwrite.  To re-run intentionally, set "
+                f"CORESET_FORCE_OVERWRITE=1 or pass --force."
+            )
+        # ─────────────────────────────────────────────────────────────
+
         self.results_dir = ensure_dir(os.path.join(self.run_dir, "results"))
         self.plots_dir = ensure_dir(os.path.join(self.run_dir, "plots"))
         self.coresets_dir = ensure_dir(os.path.join(self.run_dir, "coresets"))

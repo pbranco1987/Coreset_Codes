@@ -1,5 +1,19 @@
 # Constrained Nystrom Landmark Selection for Scalable Telecom Analytics
 
+## New here?
+
+| Goal | Start with |
+|------|------------|
+| 🚀 **Quick orientation (10 min)** | [docs/GETTING_STARTED.md](docs/GETTING_STARTED.md) |
+| 📘 **All documentation, by audience** | [docs/README.md](docs/README.md) |
+| 🛠 **Install and verify** | [docs/INSTALL.md](docs/INSTALL.md) |
+| 🧠 **Understand the public API** | [docs/api/](docs/api/index.md) |
+| 🔁 **Reproduce the pipeline** | [scripts/PIPELINE.md](scripts/PIPELINE.md) |
+| 🐛 **Something broke** | [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) |
+| 🤝 **Contribute code** | [CONTRIBUTING.md](CONTRIBUTING.md) |
+
+---
+
 ## Abstract
 
 This repository implements a **constrained multi-objective coreset selection framework** for scalable telecom analytics on Brazilian municipality-level data. The framework selects a small, representative subset (coreset) of **k** municipalities from a national dataset of **N = 5,570** municipalities across **G = 27** states, such that downstream kernel-based analytics (Nystrom approximation, kernel PCA, kernel ridge regression) remain faithful to the full dataset while satisfying geographic proportionality constraints.

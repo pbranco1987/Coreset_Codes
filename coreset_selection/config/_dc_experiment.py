@@ -110,6 +110,7 @@ class SolverConfig:
     n_gen: int = 1000
     crossover_prob: float = 0.9
     mutation_prob: float = 0.2
+    mutation_swaps: int = 1
     # Default objective pair for the primary configuration
     objectives: Tuple[str, ...] = ("mmd", "sinkhorn")
     algorithm: str = "nsga2"
@@ -117,6 +118,20 @@ class SolverConfig:
     effort_grid: EffortSweepGrid = field(default_factory=EffortSweepGrid)
     verbose: int = 0
     enforce_exact_k: bool = True
+    # Generation logging
+    enable_generation_log: bool = False
+    generation_log_snapshot_every: int = 25
+    # Adaptive tau (constraint relaxation)
+    adaptive_tau_check_every: int = 0       # 0 = disabled
+    adaptive_tau_factor: float = 1.5
+    adaptive_tau_max: float = 0.20
+    adaptive_tau_min_nondom: int = 3
+    # Early stopping
+    convergence_patience: int = 0           # 0 = disabled
+    convergence_rtol: float = 1e-4
+    # Greedy-KL initialization
+    greedy_kl_init: bool = False
+    auto_tau_multiplier: float = 1.5
 
     def get_algorithm(self) -> str:
         """

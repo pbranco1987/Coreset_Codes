@@ -85,6 +85,8 @@ def main() -> int:
     scenario_parser.add_argument("--seed", type=int, default=123)
     scenario_parser.add_argument("--device", default="cpu")
     scenario_parser.add_argument("--fail-fast", action="store_true")
+    scenario_parser.add_argument("--force", action="store_true",
+                                 help="Allow overwriting completed results (USE WITH CARE)")
     # Granular job control (v2 experiments)
     scenario_parser.add_argument("--dim-override", type=int, default=None,
                                  help="Override VAE/PCA dimension (e.g., --dim-override 8 for T_vdim)")
@@ -136,6 +138,8 @@ def main() -> int:
         p.add_argument("--seed", type=int, default=123)
         p.add_argument("--device", default="cpu")
         p.add_argument("--fail-fast", action="store_true")
+        p.add_argument("--force", action="store_true",
+                       help="Allow overwriting completed results (USE WITH CARE)")
         if _run_id == "R6":
             p.add_argument("--source-run", default="R1", help="Source run base ID")
             p.add_argument("--source-space", default="vae", help="Source space: vae|pca|raw")
@@ -203,6 +207,8 @@ def main() -> int:
                            help="Compute device")
     all_parser.add_argument("--fail-fast", action="store_true",
                            help="Stop on first failure")
+    all_parser.add_argument("--force", action="store_true",
+                           help="Allow overwriting completed results (USE WITH CARE)")
     all_parser.set_defaults(func=cmd_all)
 
     # seq command - run SELECTED experiments sequentially
@@ -228,6 +234,8 @@ def main() -> int:
                            help="Compute device")
     seq_parser.add_argument("--fail-fast", action="store_true",
                            help="Stop on first failure")
+    seq_parser.add_argument("--force", action="store_true",
+                           help="Allow overwriting completed results (USE WITH CARE)")
     seq_parser.set_defaults(func=cmd_seq)
 
     # artifacts command (with alias 'figs')

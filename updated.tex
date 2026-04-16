@@ -1,0 +1,1342 @@
+
+\documentclass[10pt,journal]{IEEEtran}
+
+% ================================================================
+% Packages
+% ================================================================
+\usepackage{newtxtext,newtxmath}
+\let\Bbbk\relax
+\usepackage{amsmath,amssymb,amsfonts,mathtools}
+\let\openbox\relax
+\usepackage{amsthm}
+\usepackage{graphicx}
+\usepackage{array}
+\usepackage{booktabs}
+\usepackage{arydshln}
+\usepackage{siunitx}
+\usepackage{cite}
+\usepackage{xcolor}
+\usepackage{url}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{rotating}
+\usepackage{enumitem}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,shapes.geometric,fit,calc,patterns}
+\usepackage{microtype}
+\usepackage[hidelinks]{hyperref}
+
+% ================================================================
+% Acronym handling  (glossaries must be loaded AFTER hyperref)
+% ================================================================
+\usepackage[acronym,nomain,nonumberlist,nogroupskip]{glossaries}
+
+\newacronym{kl}{KL}{Kullback--Leibler}
+\newacronym{mmd}{MMD}{maximum mean discrepancy}
+\newacronym{nsga2}{NSGA-II}{Non-dominated Sorting Genetic Algorithm~II}
+\newacronym{rff}{RFF}{random Fourier features}
+\newacronym{rkhs}{RKHS}{reproducing kernel Hilbert space}
+\newacronym{vae}{VAE}{variational autoencoder}
+\newacronym{pca}{PCA}{principal component analysis}
+\newacronym{rbf}{RBF}{radial basis function}
+\newacronym{dpp}{DPP}{determinantal point process}
+\newacronym{knn}{KNN}{K-nearest neighbors}
+\newacronym{kpi}{KPI}{key performance indicator}
+\newacronym{sh}{SH}{Sinkhorn divergence}
+\newacronym{rmse}{RMSE}{root mean squared error}
+\newacronym{kkn}{KKN}{kernel $k$-means Nystr\"{o}m}
+
+% ================================================================
+% Convenience macros
+% ================================================================
+\newcommand{\datasetN}{5{,}569}
+\newcommand{\latentDim}{d_z}
+\newcommand{\popSize}{200}
+\newcommand{\nGen}{1000}
+\newcommand{\kGrid}{\mathcal{K}}
+\newcommand{\kGridDef}{\{30,50,100,200,300,400,500\}}
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\1}{\mathbf{1}}
+\newcommand{\supp}{\mathrm{supp}}
+\newcommand{\bx}{\mathbf{x}}
+\newcommand{\br}{\mathbf{r}}
+\newcommand{\bw}{\mathbf{w}}
+\newcommand{\bc}{\mathbf{c}}
+\newcommand{\bz}{\mathbf{z}}
+\newcommand{\bK}{\mathbf{K}}
+\newcommand{\bI}{\mathbf{I}}
+\newcommand{\bpi}{\boldsymbol{\pi}}
+\newcommand{\Sel}{\mathcal{S}}
+\newcommand{\Full}{\mathrm{full}}
+\newcommand{\SH}{\mathrm{SH}}
+\DeclareMathOperator{\KL}{KL}
+\DeclareMathOperator{\MMD}{MMD}
+\DeclareMathOperator{\OT}{OT}
+\DeclareMathOperator*{\argmin}{argmin}
+\DeclareMathOperator*{\argmax}{argmax}
+
+% Optional: Adjust the dash style (dash length, gap length)
+\setlength{\dashlinedash}{2pt}
+\setlength{\dashlinegap}{2pt}
+
+% ================================================================
+% Theorem environments
+% ================================================================
+\newtheoremstyle{ieeethm}
+  {3pt}{3pt}{\itshape}{}{\bfseries}{.}{0.5em}{}
+\theoremstyle{ieeethm}
+\newtheorem{theorem}{Theorem}
+\newtheorem{remark}{Remark}
+\newtheorem{lemma}{Lemma}
+\newtheorem{proposition}{Proposition}
+\newtheorem{corollary}{Corollary}
+\newtheorem{definition}{Definition}
+
+\newenvironment{proofsketch}{\begin{proof}[Proof sketch]}{\end{proof}}
+
+\makeatletter
+\renewcommand{\IEEEproofname}{Proof}
+\renewenvironment{IEEEproof}[1][\IEEEproofname]{%
+  \par\pushQED{\IEEEQED}%
+  \normalfont
+  \topsep6\p@\@plus6\p@\relax
+  \trivlist
+  \item[]\textbf{#1.}\ignorespaces
+}{%
+  \popQED\endtrivlist\@endpefalse
+}
+\makeatother
+
+\title{Region-Constrained Representative Subset Selection for Telecom Analytics}
+
+\author{%
+\IEEEauthorblockN{Paulo Ricardo Branco da Silva\IEEEauthorrefmark{1},
+Dimas Irion Alves\IEEEauthorrefmark{1}}, Kai de Andrade Lima\IEEEauthorrefmark{2}, \\
+Fábio Mainart da Silva\IEEEauthorrefmark{2}, Renato Machado\IEEEauthorrefmark{1}\\
+\IEEEauthorrefmark{1}Division of Electronic Engineering, Aeronautics Institute of Technology (ITA), São José dos Campos, Brazil\\
+Email: {pbranco, dimasirion, rmachado}@ita.br\\
+\IEEEauthorrefmark{2}National Agency of Telecommunications (ANATEL), Brasília, Brazil\\
+Email: {kai.lima, fabiomainart}@anatel.gov.br
+\vspace{-1.0cm}
+}
+
+
+\begin{document}
+\maketitle
+
+
+\begin{abstract}
+Region-conditioned telecom analytics requires selecting $k\!\ll\!N$ representative municipalities whose regional composition faithfully reflects the full dataset. Geographically imbalanced subsets can distort regional summaries and bias downstream analyses. We enforce three constraints: (i)~exact~$k$, (ii)~region-wise lower/upper bounds, and (iii)~subset region shares close to the full dataset via a forward Kullback--Leibler (KL) divergence computed from nonnegative municipality weights (uniform weights preserve municipality shares, while population weights preserve represented-population shares). The framework's planning stage characterizes feasible regional compositions. In count-based settings, it computes KL-optimal integer quotas and the minimum achievable divergence for each~$k$; for general weights, it derives a monotone-submodular KL surrogate with greedy feasibility guarantees. A selection stage then searches the feasible space via NSGA-II, jointly minimizing maximum mean discrepancy and debiased Sinkhorn divergence, using swap-based repairs and controlled-cost surrogate objectives to maintain feasibility. On $N{=}\datasetN$ Brazilian municipalities across 27~states, evaluated over 165~metrics, the method ranks first among nine constrained alternatives. The feasible Pareto-front point closest to the component-wise best objective values achieves the top overall performance, and metric-wise selection over the same front outperforms the top performer among baselines in 574 out of 825 comparisons. The selected subsets also serve as high-quality Nyström landmarks for kernel approximation, demonstrating that embedding regional proportionality through distribution matching yields constraint-compliant subsets that are effective across operator-fidelity, supervised-learning, and geographic-adherence dimensions.
+\end{abstract}
+
+% ================================================================
+%  KEYWORDS
+% ================================================================
+\begin{IEEEkeywords}
+constrained subset selection, kernel methods, maximum mean discrepancy, Sinkhorn divergence, multi-objective optimization, regional proportionality, telecom analytics
+\end{IEEEkeywords}
+
+\section{Introduction}
+\label{sec:intro}
+
+\IEEEPARstart{M}{unicipality-level data} play an important role in telecom analytics for coverage monitoring, regional benchmarking, and regulatory assessment \cite{mohammadjafari2020coverage,weedage2024resilience}. When analysts must distil a large inventory of $N$ municipalities into a compact subset of $k\!\ll\!N$ representatives---for dashboards, stratified reporting, or as inputs to computational methods that scale poorly with $N$---the subset's regional composition becomes a constraint. A selection that under-represents certain states may bias regional summaries, destabilize regional rankings, or undermine downstream models that rely on balanced geographic coverage. We therefore formulate representative subset selection as a constrained optimization problem that enforces exact cardinality~$k$, per-state lower and upper bounds on selected counts, and closeness of subset region shares to the full dataset, measured by forward \gls{kl} divergence.
+
+One important application of such subsets arises in kernel methods, where the full $N\!\times\!N$ Gram matrix dominates cost \cite{scholkopf2002learning,liu2010kaf,engel2004krls}. Nystr\"{o}m approximation uses $k\!\ll\!N$ selected items (termed landmarks) to build a low-rank approximation of the full kernel matrix from only the columns indexed by the chosen subset \cite{williams2001nystrom,gittens2016nystrom}. In data-reduction terms, landmarks are a form of coreset---a small subset that provably preserves specified properties of the full dataset \cite{phillips2016coresets,feldman2020coresets}---but with the specific role of defining the Nystr\"{o}m kernel approximation used by downstream operators. Common selection methods, including leverage scores, kernel $k$-means, and randomized matrix approximations, primarily target global approximation quality \cite{natoleverage2011,alaoui2015rr,he_zhang_2018,Li_Bi_Kwok_2015} but do not directly control regional composition.
+
+For region-stratified telecom analysis, global accuracy is not enough. Each subset induces a region-share vector, namely the fraction of selected municipalities---or, more generally, selected weight---contributed by each state. If those shares drift from the full dataset, regional summaries, rankings, or predictive models can become unstable even when the global kernel surrogate remains accurate. We therefore treat regional composition not as a soft penalty or a post-hoc diagnostic, but as an admissibility condition that every accepted subset must satisfy.
+
+Composition is enforced through nonnegative weights $w_i$ assigned to each municipality. For every region, the weights of its municipalities are summed and the resulting totals are normalized to obtain the full-data region-share distribution. The selected subset must reproduce this distribution, within tolerance, as measured by the forward \gls{kl} divergence between the full-data shares and the subset-induced shares. Uniform weights preserve municipality shares across states, whereas population weights preserve represented-population shares; other domain-specific attributes---such as GDP, mobile-subscription count, or any analyst-defined importance score---encode alternative notions of regional importance. The forward \gls{kl} direction is deliberate: it assigns infinite penalty when a region present in the target distribution receives zero mass in the subset and grows sharply whenever subset shares fall below target, thereby penalizing under-representation more severely than over-representation of comparable magnitude. We also require exactly $k$ selected municipalities and per-region lower and upper bounds on the number of municipalities selected from each region.
+
+These requirements lead naturally to a two-stage problem. First, one must understand which regional compositions are attainable at the chosen cardinality~$k$. Second, among the subsets that satisfy those composition requirements, one must select the particular municipalities that best preserve the geometry of the full dataset. Section~\ref{sec:formulation} develops the structural results that support the first task. In the uniform-weight case, it yields exact \gls{kl}-optimal integer quotas and the minimum achievable divergence for each~$k$; in the general weighted case, it identifies a monotone-submodular surrogate for the \gls{kl} constraint, which gives greedy feasibility certificates and motivates the repair strategy used later. Section~\ref{sec:search} then turns these results into a practical pipeline consisting of quota planning, swap-based feasibility repair, and constrained \gls{nsga2} search.
+
+Among feasible subsets, selection is bi-objective using \gls{mmd}, comparing kernel mean embeddings \cite{gretton2012kernel}, and debiased Sinkhorn divergence, a regularized transport cost \cite{cuturi2013sinkhorn,feydy2019sinkhorn}. Because improving one need not improve the other, we seek the Pareto front of feasible trade-offs, where no solution can improve one objective without worsening the other, and which can be approximated by adapting the \gls{nsga2} algorithm \cite{deb2002nsga2} to fixed-cardinality and region-constrained subsets. This leads to a flexible set of high-quality geographically feasible trade-offs. To reduce computational cost, we use controlled-cost surrogates such as \gls{rff} \cite{rahimi2007random} for \gls{mmd} and an anchor-based approximation \cite{cuturi2013sinkhorn} for Sinkhorn during the search phase.
+
+A notable consequence of the multi-objective formulation is that the output is not a single subset but rather a family of feasible trade-offs. Different downstream tasks may favor different discrepancy balances, so the feasible front is valuable beyond any single chosen subset. A practitioner may report an automatic representative or, after the search, select the front member that best serves a task-specific metric.
+
+Against this background, the main contributions of this paper are as follows.
+\begin{enumerate}[label=(\roman*)]
+    \item We formulate exact-$k$ constrained subset selection with regional count bounds and \gls{kl}-based proportionality constraints induced by arbitrary nonnegative municipality weights, unifying share preservation by municipalities, by population, or by other analyst-defined weights.
+
+    \item We develop theoretical results for the planning stage. With uniform weights, we derive the optimal integer allocation of selections across states and the minimum attainable \gls{kl} divergence at a given $k$. With general weights, we show that the central log-sum term is monotone submodular, yielding greedy approximation bounds and a practical one-sided feasibility test.
+
+    \item We design a complete selection pipeline that couples planning with constrained \gls{nsga2}, using size-preserving variation operators, swap-based repair that restores or improves proportionality after variation, and controlled-cost proxy objectives for \gls{mmd} and Sinkhorn to evaluate candidates efficiently during search.
+
+    \item We study a nationwide Brazilian municipality dataset partitioned into 27 states, evaluating regional proportionality, operator fidelity (including Nyström approximation quality), and downstream supervised learning. Across 165 evaluation metrics and five replicas, the Pareto-front summary characterized by the normalized feasible point closest to the ideal point ranks first among nine constrained methods. Moreover, allowing evaluation to choose, per metric, the best solution on the front enables the front ensemble to beat every baseline in 574 of the 825 metric--replica comparisons.
+\end{enumerate}
+
+The remainder of the paper follows the same two-stage logic. Section~\ref{sec:related} reviews constrained subset selection, kernel approximation, distribution-matching discrepancies, and multi-objective search. Section~\ref{sec:formulation} formalizes the problem and proves the structural results used later, namely the \gls{kl} decomposition, the exact quota theorem for uniform weights, and the submodularity result for general weights. Section~\ref{sec:search} converts those results into algorithms: quota planning, swap-based repair, and constrained \gls{nsga2}. Sections~\ref{sec:exp_eval} and~\ref{sec:results_analysis} present the experimental design and empirical results. Section~\ref{sec:discussion} discusses implications and limitations, and Section~\ref{sec:conclusion} concludes.
+
+\section{Related Work}
+\label{sec:related}
+
+The proposed framework draws on four research strands: kernel approximation via landmark subsets, distribution-matching discrepancies, group-constrained subset construction, and multi-objective evolutionary search. We review each in turn, highlighting the gap that motivates the present work.
+
+Nystr\"{o}m approximation replaces the full Gram matrix with a rank-$k$ approximation induced by $k\!\ll\!N$ landmarks, reducing kernel-method cost from $\mathcal{O}(N^2)$ \cite{williams2001nystrom,gittens2016nystrom}. Because accuracy depends on the chosen landmarks, methods include leverage and ridge-leverage sampling \cite{natoleverage2011,alaoui2015rr}, kernel $k$-means-type procedures \cite{he_zhang_2018,wang2019scalablekkmeans}, randomized matrix factorization \cite{Li_Bi_Kwok_2015,golub2013matrix}, and two-stage strategies for very large datasets \cite{he2026twostepnystrom}. Nyström ideas also appear in federated kernel learning \cite{zhang_li_yin_wang_2026}, indoor positioning \cite{rekkas2024vlp}, biomedical spatial modeling \cite{liu_farahani_li_xie_2025}, and hardware-accelerated anomaly detection \cite{aftowicz_fritscher_lehniger_2024}.
+
+Most work targets global approximation accuracy (operator-level or task-level). In this paper, the selected subset must also support regional reporting, so it must be feasible under: (i) exact cardinality $k$, (ii) hard per-state lower/upper bounds, and (iii) closeness to a target weighted regional share distribution. With prescribed weights $w_i\!\ge\!0$, the induced share for region $g$ is the fraction of total selected weight contributed by $g$. In particular, uniform weights preserve municipality-share proportionality, and population weights preserve represented population-share proportionality. These are feasibility constraints, not objectives, and, to the best of our knowledge, constrained subset selection for regional analytics has not explicitly combined exact size, regional bounds, and weighted proportionality control. Nystr\"{o}m landmark selection is one important downstream use of such subsets \cite{williams2001nystrom,gittens2016nystrom,natoleverage2011,alaoui2015rr}, but the constraints and planning theory developed here are application-independent.
+
+A complementary view evaluates subsets via distribution matching. Kernel mean embeddings yield \gls{mmd}, an \gls{rkhs} discrepancy \cite{smola2007hilbert,sriperumbudur2010hilbert,gretton2012kernel,muandet2017kernel}, motivating greedy kernel herding \cite{chen2010herding} and kernel thinning \cite{dwivedi2024kernelthinning}. Optimal transport compares distributions by seeking the least-cost plan for moving probability mass from one distribution to the other, where the cost reflects the ground-metric distance between points \cite{villani2009ot,cuturi2013sinkhorn,peyre2019ot}. Entropic regularization enables scalable solvers, and the debiased Sinkhorn divergence of Feydy et al.\ \cite{feydy2019sinkhorn} is a practical choice. \gls{mmd} measures \gls{rkhs} feature-space mismatch, while Sinkhorn measures geometric mass displacement. Contrary to most subset-selection works, which optimize a single discrepancy, we optimize \gls{mmd} and Sinkhorn jointly and return a feasible Pareto front.
+
+Beyond discrepancy minimization, selecting subsets that satisfy per-group composition requirements is a problem in its own right. Group-constrained subset construction arises in fair clustering and constrained ranking \cite{chierichetti2017fair,bera2019fair,celis2018fair}. Coreset and data-summarization work provides representative-subset guarantees \cite{phillips2016coresets,feldman2020coresets,boutsidis2013nearoptimalcoresets,braverman2022uniformsampling}, with extensions to distributed \cite{lu2020robustcoreset,guo2024fedcore}, spatial \cite{zheng2021kdecoresets}, traffic \cite{hu2023citytraffic}, and self-supervised settings \cite{kim2023opensetcoresetssl}. Classical strategies such as $k$-means++ seeding \cite{arthur2007kmeanspp}, farthest-first traversal \cite{gonzalez1985clustering,harpeled2011geometric}, determinantal point processes \cite{kulesza2012dpp}, and submodular maximization \cite{krause2014submodular,calinescu2011matroid} are strong coverage/diversity baselines, but they do not natively enforce prescribed per-group counts.
+
+With per-group counts, a quota vector fixes how many items are chosen from each group. Quotas enforce count-based proportionality but do not determine the induced weighted group-share distribution: under heterogeneous within-group weights, many subsets share the same counts yet induce different weighted shares, since exchanging items within a group changes that group's weight. With uniform weights, planning reduces to a separable concave resource-allocation model \cite{ibaraki1988resource,murota2003dca,federgruen1986greedy}. In the general weighted case, feasibility via a forward \gls{kl} divergence between induced and target weighted shares cannot be reduced to counts, so allocation and selection are intrinsically coupled.
+
+Exact subset selection with nonlinear objectives under cardinality and group constraints is NP-hard \cite{garey1979np,pardalos1991qp}, motivating approximation methods and heuristic search. Evolutionary multi-objective algorithms, including \gls{nsga2}, are Pareto-front approximators in hard discrete settings \cite{deb2001moea,deb2002nsga2,coello2007moea} and have been used in network service management (e.g., service chain reconfiguration) \cite{alizadehnoghani2023moeasfc}. \gls{nsga2} is attractive here because it produces diverse trade-offs in one run, but the decision variable is a fixed-cardinality subset with integer regional bounds and \gls{kl}-based feasibility, so variation operators must preserve subset size and be paired with repair mechanisms that restore feasibility.
+
+In this paper we connect constrained representative subset selection, discrepancy-based distribution matching, group-constrained subset construction, and multi-objective evolutionary optimization in a two-stage framework that (1) characterizes attainable regional compositions and \gls{kl} limits and (2) searches, among feasible subsets, for Pareto-efficient \gls{mmd}/Sinkhorn trade-offs under exact cardinality, hard regional bounds, and forward-\gls{kl}-based weighted proportionality control.
+
+% ================================================================
+%  III. PROBLEM FORMULATION AND STRUCTURAL RESULTS
+% ================================================================
+\section{Problem Formulation and Structural Results}
+\label{sec:formulation}
+
+This section formalizes the constrained subset-selection problem and isolates the structural properties that drive the algorithms in Section~\ref{sec:search}. For the theoretical development we use the generic terms entity and group; in the empirical sections, entities are municipalities and groups are Brazilian states. A recurring distinction will be between aggregate group composition---summarized by group counts or by groupwise sums of entity weights---and entity identity, which determines geometric fidelity in the representation space.
+
+\subsection{Notation, Representations, and Kernel Operators}
+\label{subsec:notation}
+
+Let $\mathcal{N}:={1,\dots,N}$. Each entity $i\in\mathcal{N}$ is represented by a processed covariate vector $\bx_i\in\R^D$. Entities are partitioned into $G$ groups. We write $g_i\in\{1,\dots,G\}$ for the group label of entity $i$, define the index set of group $g$ by $I_g:={i\in\mathcal{N}:g_i=g}$, and let $n_g:=|I_g|$ be the size of that group. A selected subset is denoted by $\Sel\subseteq\mathcal{N}$ and always has prescribed cardinality $|\Sel|=k$. Its number of selected entities from group $g$ is $c_g(\Sel):=|\Sel\cap I_g|$, and the full count vector is $\bc(\Sel):=\big(c_1(\Sel),\dots,c_G(\Sel)\big)^\top\in\mathbb{Z}_{\ge 0}^G$. For each group $g$, the lower bound $\ell_g$ is the minimum number of entities that must be selected from that group, and the upper bound $u_g$ is the maximum allowed. Hence the cardinality and capacity constraints are $|\Sel|=k$ and $\ell_g\le c_g(\Sel)\le u_g\le n_g$. In the experiments we usually set $u_g=n_g$, meaning that a group may contribute all of its entities. We nevertheless keep $u_g$ explicit because some applications require stricter caps, and all results and algorithms below continue to hold in that more restrictive setting.
+
+Selection objectives are evaluated in a representation space of dimension $p$ via a map $\psi:\R^D\to\R^p$, with representation vector $\br_i:=\psi(\bx_i)$. We consider three choices of $\psi$: (i) the processed raw space, in which $\psi$ is the identity map on the preprocessed covariates and therefore $p=D$; (ii) the \gls{pca} space, in which $\psi$ is the projection onto the first $p$ principal components \cite{jolliffe2002principal}; and (iii) the \gls{vae}-mean space, in which $\psi(\bx_i)=\mu_\phi(\bx_i)$ is the encoder posterior mean of a variational autoencoder \cite{kingma2014autoencoding} trained on mixed-type covariates. Section~\ref{subsec:repr}, especially its second paragraph, gives the concrete \gls{pca} and \gls{vae} constructions used in the experiments and explains how continuous, binary, and multi-class variables are handled in the mixed-type VAE. We use the encoder mean rather than a random latent draw so that each entity has a single deterministic representation; otherwise the same subset could receive slightly different objective values across repeated evaluations solely because of latent sampling noise.
+
+To compare the full dataset with a selected subset, we write both as empirical probability measures: $P_{\Full}:=\frac{1}{N}\sum_{i=1}^{N}\delta_{\br_i}$ and $Q_{\Sel}:=\frac{1}{k}\sum_{i\in\Sel}\delta_{\br_i}$,
+where $\delta_{\br_i}$ denotes the Dirac measure at $\br_i$.
+% , that is, the probability measure that places all its mass on the single point $\br_i$. This notation is simply a compact way to view a finite dataset as a discrete distribution, which is the natural language for the discrepancy measures introduced below.
+
+A positive-definite kernel is a symmetric function $\kappa:\R^p\times\R^p\to\R$ whose finite Gram matrices are positive semidefinite \cite{scholkopf2002learning}. Given the representations $\{\br_i\}_{i=1}^N$, the full Gram matrix is the matrix $\bK\in\R^{N\times N}$ with entries $K_{ij}=\kappa(\br_i,\br_j)$. One important application of a selected subset is the Nyström approximation of~$\bK$:
+\[
+\widehat{\bK}(\Sel)=\bK_{:,\Sel}\,\bK_{\Sel,\Sel}^{\dagger}\,\bK_{\Sel,:},
+\]
+where $(\cdot)^\dagger$ denotes the Moore--Penrose pseudoinverse \cite{williams2001nystrom,gittens2016nystrom}. When the selected entities cover the empirical distribution well, the corresponding kernel columns tend to span much of the dominant variation of the full matrix, which is exactly the regime in which Nyström methods are effective \cite{williams2001nystrom,gittens2016nystrom}. In our setting this link is a design principle rather than a theorem, and Section~\ref{sec:results_analysis} verifies it empirically.
+
+\subsection{Proportionality Constraints}
+\label{subsec:constraints}
+
+Let $\bw=(w_1,\dots,w_N)^\top\in\R_{\ge 0}^N$ be a nonnegative weight vector, not identically $\mathbf{0}$. The role of $\bw$ is to define which notion of group importance the selected subset should preserve. When $w_i\equiv 1$, every entity contributes one unit of mass and the resulting notion preserves the distribution of entities across groups; in the Brazilian application, this is municipality-share proportionality. When the weight of municipality $i$ is set equal to its population $\nu_i$, the proportionality notion instead preserves the distribution of represented population across groups. More generally, any analyst-defined nonnegative attribute can be used.
+
+The full-data weight carried by group $g$ is $W_g:=\sum_{i\in I_g} w_i$, and the full-data total weight is $W:=\sum_{i=1}^{N}w_i=\sum_{g=1}^{G}W_g$. Assuming $W_g>0$ for every group participating in the constraint, the target group-share distribution induced by $\bw$ is the probability vector $\pi_g^{(\bw)}:=\frac{W_g}{W}$.
+
+For a candidate subset $\Sel$, the selected weight contributed by group $g$ is $W_g(\Sel):=\sum_{i\in \Sel\cap I_g}w_i$, and the total selected weight is $W(\Sel):=\sum_{i\in\Sel}w_i=\sum_{g=1}^{G}W_g(\Sel)$. If one uses the unsmoothed subset shares $W_g(\Sel)/W(\Sel)$ directly, any omitted group receives zero probability, and the forward \gls{kl} divergence becomes undefined whenever the target share of that group is positive. We therefore introduce additive smoothing $\alpha>0$ and define the smoothed subset distribution by
+\[
+\widehat{\pi}_g^{(\bw,\alpha)}(\Sel)
+=
+\frac{W_g(\Sel)+\alpha}{W(\Sel)+\alpha G}.
+\]
+Smoothing serves two purposes: it guarantees strictly positive subset shares for all groups, and it regularizes the constraint when $k$ is small and some groups receive very little selected weight. The numerical value of $\alpha$ used in the experiments is specified later in Section~\ref{subsec:search_config}.
+
+Proportionality is quantified by the forward \gls{kl} divergence
+$D^{(\bw)}(\Sel)
+:=
+\KL\!\big(\bpi^{(\bw)}\,\big\|\,\widehat{\bpi}^{(\bw,\alpha)}(\Sel)\big)$.
+A tolerance $\tau\ge 0$ specifies the maximum admissible divergence: the proportionality constraint induced by $\bw$ is satisfied only if $D^{(\bw)}(\Sel)\le \tau$. Throughout this section, $\tau$ denotes a generic admissible upper bound; the specific numerical tolerance used in the experiments is introduced later in Section~\ref{subsec:search_config}.
+
+The forward direction is deliberate. In region-conditioned reporting, material under-representation of a group is typically more harmful than mild over-representation, because summaries for an under-covered group can become unstable or biased. Forward \gls{kl} penalizes that type of failure sharply. Other $f$-divergences---for example reverse \gls{kl}, Jensen--Shannon divergence, or squared Hellinger divergence---could also be considered in principle, but the exact count-based planning theorem below relies on the particular log-sum structure induced by forward \gls{kl}.
+
+The framework allows several proportionality notions to be enforced simultaneously. Let $\mathcal{H}$ be a finite index set. For each $h\in\mathcal{H}$, specify a weight vector $\bw^{(h)}$, a smoothing constant $\alpha_h$, and a tolerance $\tau_h$. A subset $\Sel$ is called \gls{kl}-feasible if $D^{(\bw^{(h)})}(\Sel)\le \tau_h$, $\forall h\in\mathcal{H}$. This notation covers, for example, simultaneous municipality-share and population-share control.
+
+\begin{remark}[Nature of the Weights]
+A basic but important distinction follows. Under uniform weights ($w_i\equiv 1$), the \gls{kl} constraint depends only on the count vector $\bc(\Sel)$, because every selected entity contributes exactly one unit of weight. Under population-share weights, or any other heterogeneous weighting scheme, the \gls{kl} constraint depends on which entities are selected within each group, not only on how many. Consequently, a method that fixes only the number of selected entities per group guarantees count-share proportionality exactly; when the entities are municipalities, this coincides with municipality-share proportionality. It does not, in general, guarantee population-share proportionality.
+\end{remark}
+
+\subsection{Discrepancy Objectives}
+\label{subsec:objectives}
+
+Among subsets that satisfy the cardinality, capacity, and \gls{kl} constraints above, we choose the subset by minimizing two complementary discrepancy objectives.
+
+The first is the squared \gls{mmd} \cite{gretton2012kernel},
+\[
+f_{\mathrm{MMD}}(\Sel)
+:=
+\MMD^2(P_{\Full},Q_{\Sel})
+=
+\|\mu_{P_{\Full}}-\mu_{Q_{\Sel}}\|_{\mathcal{H}_\kappa}^2,
+\]
+where $\mathcal{H}_\kappa$ is the \gls{rkhs} associated with $\kappa$, and $\mu_P:=\int \kappa(\cdot,\br)\,dP(\br)$ denotes the kernel mean embedding of a probability measure $P$. Thus, \gls{mmd} measures discrepancy between the full dataset and the subset in kernel feature space.
+
+The second is the debiased \gls{sh} with entropic regularization parameter $\varepsilon>0$ \cite{cuturi2013sinkhorn,feydy2019sinkhorn}. For the subset-selection objective we ultimately evaluate it at $(\mu,\nu)=(P_{\Full},Q_{\Sel})$, but it is useful to define the quantity for generic probability measures $\mu$ and $\nu$ on the representation space. Let $c(\br,\br')$ be a nonnegative cost function on that space, often called the ground cost because it specifies the elementary cost of moving one unit of probability mass from $\br$ to $\br'$. In the experiments we use Euclidean distance. The entropically regularized optimal transport cost is
+\[
+\OT_{\varepsilon}(\mu,\nu)
+:=
+\min_{\gamma\in\Pi(\mu,\nu)}
+\int c(\br,\br')\,d\gamma(\br,\br')
++
+\varepsilon\,\KL\!\big(\gamma\,\big\|\,\mu\otimes\nu\big),
+\]
+where $\Pi(\mu,\nu)$ is the set of couplings of $\mu$ and $\nu$, that is, joint probability measures $\gamma$ whose marginals are $\mu$ and $\nu$, and $\mu\otimes\nu$ denotes the product measure corresponding to independence. The debiased \gls{sh}, which we henceforth call simply \gls{sh} for convenience, is then
+\begin{equation*}
+\SH_{\varepsilon}(\mu,\nu)
+:=
+\OT_{\varepsilon}(\mu,\nu)
+-\tfrac12\OT_{\varepsilon}(\mu,\mu)
+-\tfrac12\OT_{\varepsilon}(\nu,\nu).
+\end{equation*}
+
+We use \gls{mmd} and \gls{sh} jointly because they capture different aspects of subset fidelity. \gls{mmd} emphasizes agreement of kernel mean structure, which is natural when downstream operators are themselves kernel-based. \gls{sh} emphasizes the geometry of mass displacement in representation space. We do not claim a general theorem that minimizing these discrepancies yields a universally optimal coreset for every downstream task. Our justification is narrower and more operational: both quantities measure how closely the empirical distribution of the subset matches that of the full dataset, but they do so through different geometries. This makes them natural surrogates whenever downstream procedures depend mainly on distributional fidelity in the chosen representation. A promising direction for future work is to make this precise for specific tasks---for example, by proving that small \gls{mmd} or \gls{sh} controls the error of kernel operators, predictors, or Nyström approximations. In the present paper, we therefore treat their usefulness as a theoretically motivated hypothesis and test it empirically.
+
+A third objective appears only in the objective-ablation experiments:
+\[
+f_{\mathrm{LD}}(\Sel):=-\log\det(\bK_{\Sel,\Sel}+\sigma^2\bI),
+\]
+where $\sigma^2>0$ is a small positive regularization parameter added to stabilize the determinant when $\bK_{\Sel,\Sel}$ is nearly singular. This log-determinant criterion is included because it is a classical diversity score: large determinant means the selected kernel columns span a large volume and are therefore less redundant, an idea closely related to determinantal methods \cite{kulesza2012dpp}. It is useful as an ablation because it favors internal diversity of the subset without explicitly matching the full-data distribution.
+
+\subsection{Constrained Bi-Objective Problem}
+\label{subsec:biobj_def}
+
+The optimization problem addressed in this paper is defined as follows.
+
+\begin{definition}[Constrained Bi-Objective Subset Selection]
+\label{def:main_problem}
+Let $\{\bx_i\}_{i=1}^N\subset\R^D$ be the processed covariates of the $N$ entities, let $(I_g)_{g=1}^G$ be the group partition of $\mathcal{N}$, let $k\in\{1,\dots,N\}$ be the desired subset cardinality, let $\boldsymbol{\ell},\mathbf u\in\mathbb{Z}_{\ge 0}^G$ be lower and upper selection bounds with $\ell_g\le u_g\le n_g$, and let $\{(\bw^{(h)},\alpha_h,\tau_h)\}_{h\in\mathcal{H}}$ denote the proportionality constraints from Section~\ref{subsec:constraints}. The constrained bi-objective subset-selection problem is
+\begin{equation}
+\label{eq:main_problem}
+\begin{aligned}
+&\mspace{40mu}\min_{\Sel\subseteq\mathcal{N}}
+\begin{bmatrix}
+f_{\mathrm{MMD}}(\Sel)\\
+f_{\mathrm{SH}}(\Sel)
+\end{bmatrix},
+\\[1.5ex]
+&\text{s.t.}\quad |\Sel|=k,
+\\
+&\phantom{\text{s.t.}\quad}\ell_g\le c_g(\Sel)\le u_g,\qquad g=1,\dots,G,
+\\
+&\phantom{\text{s.t.}\quad}D^{(\bw^{(h)})}(\Sel)\le \tau_h,\qquad \forall h\in\mathcal{H}.
+\end{aligned}
+\end{equation}
+\end{definition}
+
+Problem~\eqref{eq:main_problem} is computationally difficult. Exact subset selection with cardinality constraints is NP-hard for many nonlinear objectives \cite{garey1979np,pardalos1991qp}. Adding group capacities and \gls{kl}-based proportionality does not change that complexity. The remainder of this section therefore isolates the part of the problem that admits an analytic scaffold before we turn, in Section~\ref{sec:search}, to algorithmic approximations for the full selection task.
+
+\subsection{\glsentryshort{kl} Decomposition}
+\label{subsec:kl_decomp}
+
+The \gls{kl} constraints depend on a candidate subset only through the aggregated group totals ${W_g(\Sel)}_{g=1}^{G}$ and their sum $W(\Sel)$. Once these quantities are fixed, exchanging one entity for another without changing the groupwise weight sums leaves the \gls{kl} value unchanged. This separation is central: \gls{kl} sees only aggregate group composition, whereas \gls{mmd} and \gls{sh} also depend on the within-group geometry of the selected entities.
+
+Let
+\begin{equation*}
+\Delta^G:= \left\lbrace \mathbf{p}\in\R_{\ge 0}^{G}:\sum_{g=1}^{G}p_g=1 \right\rbrace
+\end{equation*}
+be the probability simplex on $G$ groups.
+
+\begin{lemma}[Smoothed weighted \glsentryshort{kl} decomposition and zero-divergence condition]
+\label{thm:kl_feasibility}
+Let $\bpi\in\Delta^G$ satisfy $\pi_g>0$ for all $g$, let $\alpha>0$, let $\bw\in\R_{\ge 0}^N$ be nonzero, and let $(I_g)_{g=1}^G$ be a partition of $\mathcal{N}$. Then, for any subset $\Sel\subseteq\mathcal{N}$,
+\begin{equation}
+\label{eq:kl_decomp}
+\begin{aligned}
+&\KL\!\big(\bpi\,\big\|\,\widehat{\bpi}^{(\bw,\alpha)}(\Sel)\big)\le \tau
+\iff
+\\
+&\sum_{g=1}^{G}\pi_g\log\!\big(W_g(\Sel)+\alpha\big)
+\ge
+\log\!\big(W(\Sel)+\alpha G\big)
+\\
+&\qquad\qquad\qquad + \sum_{g=1}^{G}\pi_g\log\pi_g - \tau.
+\end{aligned}
+\end{equation}
+Moreover, $\KL\!\big(\bpi\,\big\|\,\widehat{\bpi}^{(\bw,\alpha)}(\Sel)\big)=0$ if and only if $W_g(\Sel)+\alpha
+=
+\pi_g\big(W(\Sel)+\alpha G\big)$.
+\end{lemma}
+
+\begin{IEEEproof}\enspace
+Let
+\begin{equation*}
+q_g:=\widehat{\pi}_g^{(\bw,\alpha)}(\Sel)
+=
+\frac{W_g(\Sel)+\alpha}{W(\Sel)+\alpha G},
+\end{equation*}
+which is strictly positive since $\alpha>0$. The forward \gls{kl} divergence expands as
+\begin{equation*}
+\KL(\bpi\|\mathbf q)
+=
+\sum_{g=1}^{G}\pi_g\log\pi_g
+-
+\sum_{g=1}^{G}\pi_g\log q_g.
+\end{equation*}
+Using $\log q_g
+=
+\log\!\big(W_g(\Sel)+\alpha\big)
+-
+\log\!\big(W(\Sel)+\alpha G\big)$,
+and $\sum_{g=1}^{G}\pi_g=1$, we obtain
+\begin{equation*}
+\begin{aligned}
+\KL\!\big(\bpi\,\big\|\,\widehat{\bpi}^{(\bw,\alpha)}(\Sel)\big)
+=
+\sum_{g=1}^{G}\pi_g\log\pi_g
++
+\log\!\big(W(\Sel)+\alpha G\big)\\
+-
+\sum_{g=1}^{G}\pi_g\log\!\big(W_g(\Sel)+\alpha\big).
+\end{aligned}
+\end{equation*}
+Imposing $\KL\le\tau$ and rearranging gives~\eqref{eq:kl_decomp}. Finally,
+$\KL(\bpi\|\mathbf q)=0$ iff $\bpi=\mathbf q$ componentwise.
+\end{IEEEproof}
+
+Lemma~\ref{thm:kl_feasibility} formalizes the aggregation principle just described. In the uniform-weight case ($w_i\equiv 1$), the aggregated totals reduce to integer group counts $c_g(\Sel)$, and the \gls{kl} value is fully determined by how many entities are chosen from each group. In the weighted case, two subsets with identical group-count vectors can still produce different \gls{kl} values because the selected entities may carry different individual weights; consequently, the groupwise weight sums $W_g(\Sel)=\sum_{i\in\Sel\cap I_g}w_i$ must be tracked instead of mere counts.
+
+\subsection{Count-Based Quota Theorem}
+\label{subsec:quota_thm}
+
+When $w_i\equiv 1$, every selected entity contributes one unit of weight. Then $W(\Sel)=|\Sel|=k$ and $W_g(\Sel)=c_g(\Sel)$, so the \gls{kl} constraint depends only on the count vector $\bc(\Sel)$. This permits a clean separation between planning and selection: planning determines how many entities each group should contribute, and selection later determines which specific entities realize those counts.
+
+Let the feasible integer-allocation set be
+\begin{equation*}
+\mathcal{C}(k)
+:=
+\big\{\bc\in\mathbb{Z}_{\ge 0}^{G}:\sum_{g=1}^{G}c_g=k,\ \ell_g\le c_g\le u_g\big\}.
+\end{equation*}
+Let $\Phi(\bc):=\sum_{g=1}^{G}\pi_g\log(c_g+\alpha)$, where $\bpi$ is the target group-share distribution under uniform weights. If group $g$ currently has $t$ allocated slots, then the marginal gain of assigning one additional slot to that group is the increase in $\Phi$ produced by replacing $t$ by $t+1$:
+\[
+\Delta_g(t)
+:=
+\pi_g\big[\log(t+\alpha+1)-\log(t+\alpha)\big].
+\]
+The greedy planning rule starts from the mandatory lower bounds $\ell_g$ and repeatedly assigns the next available slot to the admissible group with largest current marginal gain.
+
+\begin{theorem}[\glsentryshort{kl}-optimal count quotas under bounds]
+\label{thm:quota}
+Assume $w_i\equiv 1$ and fix $k\in\mathbb{Z}_{>0}$. Let $\boldsymbol{\ell},\mathbf u\in\mathbb{Z}_{\ge 0}^G$ satisfy $\sum_g \ell_g\le k\le \sum_g u_g$ and $\ell_g\le u_g\le n_g$ for every $g$. Then:
+\begin{enumerate}[label=(\roman*)]
+\item Minimizing $\KL\!\big(\bpi\,\big\|\,\widehat{\bpi}^{(\alpha)}(\bc)\big)$ over $\bc\in\mathcal{C}(k)$ is equivalent to maximizing $\Phi(\bc)$ over $\mathcal{C}(k)$.
+\item The greedy allocation rule described above returns a global maximizer of $\Phi$ on $\mathcal{C}(k)$.
+\item Consequently, the greedy solution attains
+\[
+\KL_{\min}(k)
+:=
+\min_{\bc\in\mathcal{C}(k)}
+\KL\!\big(\bpi\,\big\|\,\widehat{\bpi}^{(\alpha)}(\bc)\big),
+\]
+and its optimizer is the \gls{kl}-optimal quota vector $\bc^\star(k)$.
+\end{enumerate}
+\end{theorem}
+
+\begin{proofsketch} \enspace
+By Lemma~\ref{thm:kl_feasibility}, the uniform-weight \gls{kl} objective equals a constant depending on $k$ minus $\Phi(\bc)$. Hence minimizing \gls{kl} is exactly the same as maximizing the separable concave objective $\Phi(\bc)$. Because the logarithm is concave, the marginal gains $\Delta_g(t)$ are nonincreasing in $t$. The greedy rule therefore selects the largest currently available admissible marginal gain. A standard greedy-stays-ahead argument then shows optimality: because marginal gains are nonincreasing, swapping any allocation in an optimal solution with the greedy choice at the same step cannot decrease the objective. Repeating this swap at every step proves that the greedy allocation matches an optimal one. Upper capacities do not affect this reasoning: once a group reaches $u_g$, it is simply excluded from further allocation. Appendix~\ref{app:additional_proofs} contains the full proof.
+\end{proofsketch}
+
+The quantity $\KL_{\min}(k)$ is the feasibility certificate for count-share proportionality at cardinality $k$: if tolerance $\tau$ is smaller than $\KL_{\min}(k)$, then no size-$k$ subset can satisfy that tolerance under the count bounds, regardless of which entities are chosen. In the Brazilian application, count-share proportionality is municipality-share proportionality. When $\tau \ge \KL_{\min}(k)$, the planning stage returns an optimal quota vector $\bc^\star(k)$ that can be used directly in the count-share experiments and baselines.
+
+\subsection{Submodularity and Greedy Feasibility in the Weighted Case}
+\label{subsec:weighted_thm}
+
+The count-based theorem relies on the fact that, under uniform weights, the total selected weight satisfies $W(\Sel)=k$ for every cardinality-$k$ subset. Heterogeneous weights break this simplification. When the weight of entity $i$ is set equal to municipality population, for example, two subsets may have the same count vector and still induce different weighted group shares because the selected entities within the same group can have different populations. In the weighted case, counts alone therefore do not determine \gls{kl} feasibility.
+
+Let a set function $F:2^{\mathcal{N}}\to\mathbb{R}$ be submodular if it has the diminishing-returns property
+\begin{equation*}
+F(A\cup\{j\})-F(A)\ge F(B\cup\{j\})-F(B),
+\end{equation*}
+where $A\subseteq B\subseteq\mathcal{N},\ j\notin B$. It is monotone nondecreasing if $F(A) \le F(B)$ whenever $A\subseteq B$. 
+
+Let the partition matroid be a family of feasible subsets obtained by partitioning the ground set $\mathcal{N}$ (i.e., the full collection of $N$ candidate entities) into disjoint groups and imposing a separate capacity on each group. In the present setting, once the mandatory lower bounds have been satisfied, the residual admissible family is obtained by allowing at most $u_g-\ell_g$ additional selections from group $g$. Finally, a $\rho$-approximation guarantee means that the objective value achieved by the returned feasible solution is at least $\rho$ times the objective value of an optimal feasible solution ($\rho\in(0,1]$).
+
+Let the weighted log-sum surrogate be
+\begin{equation}
+\label{eq:phi_w_definition}
+\Phi^{(\bw)}(\Sel)
+:=
+\sum_{g=1}^{G}\pi_g\log\big(W_g(\Sel)+\alpha\big).
+\end{equation}
+
+\begin{theorem}[Monotone submodularity of the weighted log-sum surrogate and a sufficient greedy feasibility test]
+\label{thm:weighted_kl}
+Let $\bw\in\R_{\ge 0}^{N}$ satisfy $\sum_{i\in I_g}w_i>0$ for every $g$, let $\alpha>0$, let $\bpi\in\Delta^G$ satisfy $\pi_g>0$ for all $g$, and let $\Phi^{(\bw)}(\Sel)$ be given by \eqref{eq:phi_w_definition}. Then:
+\begin{enumerate}[label=(\roman*)]
+\item\label{item:reduction_general}
+By Lemma~\ref{thm:kl_feasibility}, for every $\Sel$ with $|\Sel|=k$,
+\begin{equation}
+\label{eq:kl_phi_decomp}
+\begin{aligned}
+\KL\!\big(\bpi\,\big\|\,\widehat{\bpi}^{(\bw,\alpha)}(\Sel)\big)
+=
+\underbrace{\sum_{g=1}^{G}\pi_g\log\pi_g}_{\text{constant}}
+\\
++\log\!\big(W(\Sel)+\alpha G\big)
+-\Phi^{(\bw)}(\Sel).
+\end{aligned}
+\end{equation}
+When $W(\Sel)$ varies across feasible cardinality-$k$ subsets, maximizing $\Phi^{(\bw)}$ is a surrogate for minimizing weighted \gls{kl}, rather than an exact reformulation.
+\item\label{item:submodular}
+The set function $\Phi^{(\bw)}$ is monotone nondecreasing and submodular.
+\item\label{item:greedy}
+After the lower bounds have been satisfied, the element-wise greedy algorithm that repeatedly adds the admissible entity with largest marginal increase in $\Phi^{(\bw)}$ is a $(1/2)$-approximation to $\max \Phi^{(\bw)}$ under the residual partition-matroid capacities \cite{fisher1978submodular}. If only a cardinality constraint is imposed, the classical $(1-1/e)$ guarantee applies \cite{nemhauser1978submodular}. These approximation ratios concern $\Phi^{(\bw)}$ itself. Because of the subset-dependent offset in part~\ref{item:reduction_general}, they do not automatically imply the same ratios for weighted \gls{kl}.
+\item\label{item:witness}
+Let
+\begin{equation*}
+\KL_{\min}^{(\bw)}(k)
+:=
+\min_{\substack{\Sel:|\Sel|=k,\\ \ell_g\le |\Sel\cap I_g|\le u_g}}
+\KL\!\big(\bpi\,\big\|\,\widehat{\bpi}^{(\bw,\alpha)}(\Sel)\big).
+\end{equation*}
+Let $\widehat{\Sel}_{\mathrm{gr}}$ be any greedy subset produced as in part~\ref{item:greedy}. Then $\KL_{\min}^{(\bw)}(k)
+\le
+\KL\!\big(\bpi\,\big\|\,\widehat{\bpi}^{(\bw,\alpha)}(\widehat{\Sel}_{\mathrm{gr}})\big)$,
+so the weighted-\gls{kl} value attained by the greedy subset is a computable upper bound on $\KL_{\min}^{(\bw)}(k)$. Consequently, if the greedy subset already satisfies the tolerance $\tau$, then the weighted proportionality constraint with bound $\tau$ is certainly feasible. If the greedy value exceeds $\tau$, the test is inconclusive: while this particular construction did not certify feasibility, a different feasible subset may still exist. This one-sided character is inherent to the weighted setting and motivates the empirical diagnostics in Section~\ref{subsec:q_robustness}.
+\end{enumerate}
+\end{theorem}
+
+\vspace{1ex}
+
+\begin{corollary}[Specialization to uniform weights]
+\label{cor:uniform_specialization}
+When $w_i\equiv 1$, the total selected weight satisfies $W(\Sel)=k$ for every cardinality-$k$ subset. The subset-dependent offset in Equation~\eqref{eq:kl_phi_decomp} then becomes the constant $\log(k+\alpha G)$, and the weighted formulation of Theorem~\ref{thm:weighted_kl} reduces to the exact count-based setting of Theorem~\ref{thm:quota}.
+\end{corollary}
+
+\begin{corollary}[Explicit greedy floor for population-share \glsentryshort{kl}]
+\label{cor:pop_kl_floor}
+Let $w_i$ be the population of entity~$i$, let $W_g^{\star}:=\sum_{i\in\widehat{\Sel}_{\mathrm{gr}}\cap I_g}w_i$ be the total population selected from group~$g$ by the greedy procedure of Theorem~\ref{thm:weighted_kl}\ref{item:greedy}, and let $W^{\star}:=\sum_{g=1}^{G}W_g^{\star}$. Then, by substituting $\widehat{\Sel}_{\mathrm{gr}}$ into the decomposition~\eqref{eq:kl_phi_decomp}, the greedy population-share floor is
+\begin{equation}
+\label{eq:pop_kl_floor_explicit}
+\widehat{\KL}^{(\bw)}_{\mathrm{gr}}(k)
+\;=\;
+\underbrace{\sum_{g=1}^{G}\pi_g^{(\bw)}\log\pi_g^{(\bw)}}_{C_\pi^{(\bw)}}
+\;+\;\log\!\big(W^{\star}+\alpha G\big)
+\;-\;\sum_{g=1}^{G}\pi_g^{(\bw)}\log\!\big(W_g^{\star}+\alpha\big),
+\end{equation}
+where $\pi_g^{(\bw)}:=\sum_{i\in I_g}w_i\big/\sum_{j=1}^{N}w_j$ is the fraction of the total national population residing in state~$g$, computed from all $N$ entities in the candidate pool.
+
+In the municipality-share case (Theorem~\ref{thm:quota}), the analogous floor $\KL_{\min}(k)=C_\pi+\log(k+\alpha G)-\sum_g\pi_g\log(c_g^\star+\alpha)$ depends only on the integer count vector $\bc^\star(k)$ and is exact. Equation~\eqref{eq:pop_kl_floor_explicit} depends on the actual population weights $W_g^{\star}$ of the greedy-selected municipalities and is formally an upper bound on $\KL_{\min}^{(\bw)}(k)$. The structural parallel is nonetheless clear: both floors are instances of the same decomposition, differing only in whether the group totals are integer counts or real-valued population sums, and in whether the total weight $W(\Sel)$ is constant or subset-dependent.
+
+Crucially, $\widehat{\KL}^{(\bw)}_{\mathrm{gr}}(k)$ is not merely a theoretical certificate: it is the value that is \emph{always computed} by the greedy-\gls{kl} construction before the multi-objective search begins, and it is directly adopted as the operational tolerance $\tau_{\mathrm{pop}}=\widehat{\KL}^{(\bw)}_{\mathrm{gr}}(k)$ for the population-share constraint in the evolutionary search (Section~\ref{subsec:search_config}). This makes the greedy floor the practical counterpart of the exact municipality-share floor $\KL_{\min}(k)$: both are computed in a deterministic planning stage and both set the tightest tolerance that their respective constraint types can certify as feasible at cardinality~$k$.
+\end{corollary}
+
+\begin{proofsketch} \enspace
+Part~\ref{item:reduction_general} follows directly from Lemma~\ref{thm:kl_feasibility} by identifying the surrogate $\Phi^{(\bw)}$. For part~\ref{item:submodular}, consider adding entity $j\in I_{g_j}$ to a subset $\Sel$: only the $g_j$-th term of $\Phi^{(\bw)}$ changes, so the marginal gain is $\pi_{g_j}[\log(W_{g_j}(\Sel)+w_j+\alpha)-\log(W_{g_j}(\Sel)+\alpha)]$. Because $\log$ is concave, this gain decreases as $W_{g_j}(\Sel)$ grows, which is precisely the diminishing-returns property (submodularity). Monotonicity follows from nonnegativity of the weights. Part~\ref{item:greedy} then follows from the classical guarantees for monotone submodular maximization under cardinality and matroid constraints \cite{fisher1978submodular,nemhauser1978submodular}. For part~\ref{item:witness}, any specific feasible subset provides an upper bound on the minimum achievable weighted \gls{kl} (in particular, the greedy subset does). The specialization to uniform weights (Corollary~\ref{cor:uniform_specialization}) is immediate because the offset term in \eqref{eq:kl_phi_decomp} becomes constant when all weights are equal. The explicit population-share floor (Corollary~\ref{cor:pop_kl_floor}) follows by evaluating the same decomposition~\eqref{eq:kl_phi_decomp} at the greedy subset $\widehat{\Sel}_{\mathrm{gr}}$, substituting $W_g^{\star}$ and $W^{\star}$ for the group and total weights. Appendix~\ref{app:additional_proofs} contains the full proof.
+\end{proofsketch}
+
+The weighted case is therefore harder because, once entity weights are heterogeneous, a group-count vector no longer determines the induced weighted group-share distribution. Theorem~\ref{thm:weighted_kl} shows that the problem still has exploitable structure, but only through a surrogate objective and a one-sided feasibility test.
+
+\begin{remark}[Subset-dependent offset under heterogeneous weights]
+\label{rem:surrogate_gap}
+Equation~\eqref{eq:kl_phi_decomp} shows that maximizing $\Phi^{(\bw)}$ is exactly equivalent to minimizing \gls{kl} only when $W(\Sel)$ is constant over the feasible family. Under population weights, $W(\Sel)$ varies because municipalities within the same state can have different populations. The term $\log\!\big(W(\Sel)+\alpha G\big)$ is therefore a subset-dependent offset that the surrogate $\Phi^{(\bw)}$ does not control directly. For that reason, Section~\ref{subsec:q_robustness} reports empirical diagnostics for this offset over the tested cardinality grid $k\in\kGrid$. These diagnostics are descriptive. 
+% Knowing the individual population weights in advance does not resolve this difficulty: although each $w_i$ is a fixed constant, the total selected weight $W(\Sel)=\sum_{i\in\Sel}w_i$ still varies across subsets, so the offset remains subset-dependent. 
+A general closed-form guarantee converting the greedy bound on $\Phi^{(\bw)}$ into a quantitative bound on weighted \gls{kl} would require a uniform bound on the offset variation. One natural route is a bounded weight-ratio assumption $w_{\max}/w_{\min}\le\rho$: for any cardinality-$k$ subset, $W(\Sel)\in[k\,w_{\min},\,k\,w_{\max}]$, so the offset varies by at most $\log\!\big((k\,w_{\max}+\alpha G) / (k\,w_{\min}+\alpha G)\big)$, which approaches $\log\rho$ for large $k$. Converting this bound into a formal approximation ratio for weighted \gls{kl} (rather than for $\Phi^{(\bw)}$ alone) remains an open problem.
+\end{remark}
+
+Theorem~\ref{thm:quota} establishes that the count-share planning problem admits an exact solution. Theorem~\ref{thm:weighted_kl} further shows that, in the weighted formulation, the problem preserves a useful monotone-submodular structure and admits a sufficient greedy feasibility test. Despite these structural properties, the result still depends on which specific entities are selected, so the \gls{kl} decomposition in~\eqref{eq:kl_phi_decomp} remains inherently subset-dependent. As a consequence, the overall problem defined in Definition~\ref{def:main_problem} remains NP-hard, because the identities of the selected entities interact combinatorially with \gls{mmd} and \gls{sh}. The next section therefore combines deterministic planning with constrained multi-objective search.
+
+% ================================================================
+%  IV. ALGORITHMS
+% ================================================================
+\section{Algorithms}
+\label{sec:search}
+
+Section~\ref{sec:formulation} established a clean separation: the proportionality constraints depend only on aggregated group weights, whereas \gls{mmd} and \gls{sh} depend on the actual identities of the selected entities. The algorithmic pipeline exploits exactly that separation. A planning step controls the attainable aggregate composition, a repair step corrects proportionality after variation, and a search step optimizes \gls{mmd} and \gls{sh} over entity identities while continuously enforcing the same aggregate \gls{kl} constraints.
+
+\subsection{\glsentryshort{kl}-Optimal Quota Planning}
+\label{subsec:algo_quota}
+
+Algorithm~\ref{alg:quota} implements the greedy rule of Theorem~\ref{thm:quota}. Let $\boldsymbol{\ell}=(\ell_1,\dots,\ell_G)^\top$ and $\mathbf u=(u_1,\dots,u_G)^\top$. A group is called unsaturated if its current count satisfies $c_g<u_g$. The marginal gain $\Delta_g(c_g)
+=
+\pi_g\big[\log(c_g+\alpha+1)-\log(c_g+\alpha)\big]$
+is the increase in the separable objective $\Phi(\bc)$ by assigning one additional slot to group $g$ when its current count is $c_g$.
+
+To implement this efficiently, we use a max-priority queue with \emph{lazy} gain updates, a standard technique in which stale entries are left in the queue and corrected only when they reach the top, rather than refreshing all stored gains after every allocation step. Concretely, the queue stores triples $(\delta,g,t)$, where $\delta$ is the stored marginal gain, $g$ is the group index, and $t$ is the count value at which that gain was computed. When a triple is extracted, the algorithm checks whether $t$ still equals the current count $c_g$; if not, the entry is stale and a fresh triple $(\Delta_g(c_g),g,c_g)$ is reinserted, avoiding recomputation while preserving the exact greedy allocation sequence. The gain value $\delta$ is stored because it serves as the priority-queue key: entries are ranked by their stored gain, and the pair $(g,t)$ alone would not allow the queue to order groups without recomputing $\Delta_g(t)$ at every comparison.
+
+\begingroup
+\algrenewcommand\algorithmicrequire{Input:}
+\algrenewcommand\algorithmicensure{Output:}
+\algnewcommand\algorithmicbreak{break}
+\algnewcommand\algorithmiccontinue{continue}
+\algnewcommand\Break{\State \algorithmicbreak}
+\algnewcommand\Continue{\State \algorithmiccontinue}
+
+\begin{algorithm}[t]
+\caption{Greedy Computation of \glsentryshort{kl}-Optimal Count Quotas Using a Priority Queue with Lazy Updates}
+\label{alg:quota}
+\begin{algorithmic}[1]
+\Require
+Target shares $\bpi\in\Delta^G$; lower bounds $\boldsymbol{\ell}=(\ell_1,\dots,\ell_G)^\top$; upper capacities $\mathbf u=(u_1,\dots,u_G)^\top$; sorted grid $\kGrid$; smoothing $\alpha>0$
+\Ensure
+Quota vectors $\{\bc^\star(k)\}_{k\in\kGrid}$; feasibility floors $\{\KL_{\min}(k)\}_{k\in\kGrid}$
+\State $\bc\gets \boldsymbol{\ell}$ 
+\State $k_0\gets \sum_{g=1}^{G}\ell_g$; $C_\pi\gets \sum_{g=1}^{G}\pi_g\log\pi_g$
+\State initialize an empty max-priority queue $H$
+\For{$g=1,\dots,G$}
+    \If{$c_g<u_g$}
+        \State insert $\big(\Delta_g(c_g),g,c_g\big)$ into $H$ 
+    \EndIf
+\EndFor
+\For{$k\in\kGrid$}
+    \While{$k_0<k$}
+        \State extract the record $(\delta,g,t)$ with largest stored gain from $H$
+        \If{$t\neq c_g$}
+            \State insert $\big(\Delta_g(c_g),g,c_g\big)$ into $H$
+            \Continue
+        \EndIf
+        \If{$c_g=u_g$}
+            \Continue
+        \EndIf
+        \State $c_g\gets c_g+1$; $k_0\gets k_0+1$ 
+        \If{$c_g<u_g$}
+            \State insert $\big(\Delta_g(c_g),g,c_g\big)$ into $H$ 
+        \EndIf
+    \EndWhile
+    \State $\bc^\star(k)\gets \bc$ 
+    \State $\KL_{\min}(k)\gets C_\pi+\log(k+\alpha G)-\sum_{g=1}^{G}\pi_g\log(c_g+\alpha)$
+\EndFor
+\State \Return $\{\bc^\star(k)\}_{k\in\kGrid},\ \{\KL_{\min}(k)\}_{k\in\kGrid}$
+\end{algorithmic}
+\end{algorithm}
+
+Algorithm~\ref{alg:quota} produces two independently useful outputs. First, $\KL_{\min}(k)$ is the count-share feasibility certificate from Section~\ref{subsec:quota_thm}: any tolerance smaller than this floor is impossible at the given cardinality. In the municipality application, this is the municipality-share feasibility floor. Second, $\bc^\star(k)$ is the exact \gls{kl}-optimal quota vector. In count-share experiments it can be enforced directly. In weighted experiments it remains useful as a count-based initialization: it specifies a regionally balanced starting composition, even though in the weighted setting that composition no longer determines the final \gls{kl} value by itself.
+
+\paragraph{Population-share feasibility floor.}
+For population-share proportionality, Theorem~\ref{thm:weighted_kl} defines $\KL_{\min}^{(\bw)}(k)$ as the minimum weighted \gls{kl} over all feasible cardinality-$k$ subsets. Unlike the municipality-share case, this minimum cannot be computed exactly from count allocations alone, because the total selected weight $W(\Sel)=\sum_{i\in\Sel}w_i$ varies across subsets even when they share the same state-count vector. However, Theorem~\ref{thm:weighted_kl}\ref{item:greedy} provides a computable upper bound: the greedy-KL construction produces a specific subset $\widehat{\Sel}_{\mathrm{gr}}$ and yields
+\begin{equation}
+\label{eq:greedy_kl_floor}
+\KL_{\min}^{(\bw)}(k)
+\;\le\;
+\KL\!\big(\bpi^{(\bw)}\,\big\|\,\widehat{\bpi}^{(\bw,\alpha)}(\widehat{\Sel}_{\mathrm{gr}})\big)
+\;=:\;
+\widehat{\KL}^{(\bw)}_{\mathrm{gr}}(k).
+\end{equation}
+Here $\bpi^{(\bw)}$ is the reference state-share distribution induced by the population weights of all $N=5{,}570$ municipalities, i.e.\ the fraction of the national population residing in each state. This is the empirical nation-wide population composition, not a theoretical construct: it is computed directly from the census-derived population estimates of every municipality aggregated by state, and it serves as the target distribution against which any selected subset is compared. The greedy procedure builds $\widehat{\Sel}_{\mathrm{gr}}$ by iteratively adding the municipality whose inclusion yields the largest marginal increase in the weighted surrogate $\Phi^{(\bw)}$ (Equation~\eqref{eq:phi_w_definition}), subject to state-count bounds. When the greedy floor $\widehat{\KL}^{(\bw)}_{\mathrm{gr}}(k)$ exceeds a candidate tolerance $\tau$, the test is inconclusive; when it falls below $\tau$, feasibility is certified. In the experiments, we use $\widehat{\KL}^{(\bw)}_{\mathrm{gr}}(k)$ as the operational floor for setting the population-share tolerance (Section~\ref{subsec:search_config}).
+
+\paragraph{Joint feasibility under simultaneous constraints.}
+When both municipality-share and population-share proportionality are enforced simultaneously (i.e.\ $|\mathcal{H}|=2$ with $h=1$ for uniform weights and $h=2$ for population weights), a subset $\Sel$ must satisfy $D^{(\mathbf{1})}(\Sel)\le\tau_1$ and $D^{(\bw)}(\Sel)\le\tau_2$ at the same time. Each individual floor remains a necessary condition for its own constraint: $\tau_1\ge\KL_{\min}(k)$ (Theorem~\ref{thm:quota}) and $\tau_2\ge\KL_{\min}^{(\bw)}(k)$ (Theorem~\ref{thm:weighted_kl}\ref{item:witness}). However, a closed-form expression for the joint floor
+\[
+\KL_{\min}^{\mathrm{joint}}(k)
+:=
+\min_{\substack{\Sel:|\Sel|=k,\\ \ell_g\le|\Sel\cap I_g|\le u_g}}
+\max\!\Big\{\frac{D^{(\mathbf{1})}(\Sel)}{\tau_1},\;\frac{D^{(\bw)}(\Sel)}{\tau_2}\Big\}
+\]
+does not exist in general, because the two constraints interact through the identities of the selected entities: a count vector $\bc$ that minimizes municipality-share \gls{kl} does not, in general, minimize population-share \gls{kl}, and vice versa. The municipality-share constraint restricts which count vectors are admissible, while the population-share constraint further restricts which specific entities within those counts may be chosen.
+
+Nonetheless, a \emph{two-stage witness test} is available. Algorithm~\ref{alg:quota} first certifies that the municipality-share tolerance is achievable and returns the count-optimal vector $\bc^\star(k)$. Then, a population-share greedy construction (Theorem~\ref{thm:weighted_kl}\ref{item:greedy}) is run subject to the same state-count bounds. If the resulting greedy subset $\widehat{\Sel}_{\mathrm{gr}}$ satisfies both $D^{(\mathbf{1})}(\widehat{\Sel}_{\mathrm{gr}})\le\tau_1$ and $D^{(\bw)}(\widehat{\Sel}_{\mathrm{gr}})\le\tau_2$, then joint feasibility is certified. If it fails one or both tolerances, the test is inconclusive---a jointly feasible subset may still exist but was not found by the greedy construction. In the experiments, the count-optimal vector $\bc^\star(k)$ already satisfies the municipality-share tolerance exactly (since it is the minimizer), so joint feasibility reduces to checking whether the population-share greedy floor $\widehat{\KL}^{(\bw)}_{\mathrm{gr}}(k)$ falls below the population-share tolerance $\tau_2$. This is confirmed for all $k\in\kGrid$ in the experimental results (Section~\ref{subsec:q_feasibility}).
+
+\subsection{Swap-Based Repair of Weighted Proportionality Constraints}
+\label{subsec:algo_repair}
+
+Exact count quotas do not guarantee weighted-\gls{kl} feasibility when entity weights are heterogeneous. Algorithm~\ref{alg:repair} therefore applies a local swap-based repair step that attempts to reduce \gls{kl} violation while preserving the cardinality $|\Sel|=k$ and the group-count bounds.
+
+For multiple proportionality constraints, let the violation of constraint $h\in\mathcal H$ be defined by 
+\begin{equation*}
+ v_h(\Sel):=\max\big\{D^{(\bw^{(h)})}(\Sel)-\tau_h,0\big\}.
+\end{equation*}
+The index $h^\star\in\arg\max_{h\in\mathcal H} v_h(\Sel)$ denotes any most-violated proportionality constraint. For that constraint, we compute the current representation ratio
+\begin{equation*}
+s_g
+:=
+\frac{\pi_g^{(\bw^{(h^\star)})}}
+{\widehat{\pi}_g^{(\bw^{(h^\star)},\alpha_{h^\star})}(\Sel)}.
+\end{equation*}
+Values $s_g>1$ indicate under-representation relative to constraint $h^\star$, whereas values $s_g<1$ indicate over-representation. The repair step then chooses a donor group $g^{-}$ from which one entity may be removed and a recipient group $g^{+}$ to which one entity may be added. The entity proposed for removal is denoted by $i^{-}$, and the entity proposed for addition by $i^{+}$. The superscripts “$-$” and “$+$” indicate only the direction of the candidate move. All $\arg\min/\arg\max$ ties are broken arbitrarily.
+
+We accept a proposed swap only if it strictly decreases the total violation
+\[
+V(\Sel)
+:=
+\sum_{h\in\mathcal H}\max\big\{D^{(\bw^{(h)})}(\Sel)-\tau_h,0\big\}.
+\]
+
+\begin{algorithm}[t]
+\caption{Swap-Based Repair for \glsentryshort{kl} Proportionality Constraints}
+\label{alg:repair}
+\begin{algorithmic}[1]
+\Require
+Subset $\Sel$ with $|\Sel|=k$; groups $\{I_g\}_{g=1}^{G}$; lower bounds $\boldsymbol{\ell}=(\ell_1,\dots,\ell_G)^\top$; upper bounds $\mathbf u=(u_1,\dots,u_G)^\top$; proportionality constraints $\{(\bw^{(h)},\alpha_h,\tau_h)\}_{h\in\mathcal H}$; maximum number of repair iterations $T_{\mathrm{rep}}$
+\Ensure
+Repaired subset $\widetilde{\Sel}$ with $|\widetilde{\Sel}|=k$
+\State $\widetilde{\Sel}\gets \Sel$
+\For{$t=1,\dots,T_{\mathrm{rep}}$}
+    \State $h^\star\gets \arg\max_{h\in\mathcal H}\max\{D^{(\bw^{(h)})}(\widetilde{\Sel})-\tau_h,0\}$
+    \If{$D^{(\bw^{(h^\star)})}(\widetilde{\Sel})\le \tau_{h^\star}$}
+        \State \Return $\widetilde{\Sel}$ 
+    \EndIf
+    \State compute $s_g=\pi_g^{(\bw^{(h^\star)})}/\widehat{\pi}_g^{(\bw^{(h^\star)},\alpha_{h^\star})}(\widetilde{\Sel})$ for all $g$
+    \State choose $g^{-}\in\arg\min_{g:\ |\widetilde{\Sel}\cap I_g|>\ell_g} s_g$ 
+    \State choose $g^{+}\in\arg\max_{g:\ |\widetilde{\Sel}\cap I_g|<u_g} s_g$ 
+    \State sample $i^{-}\in \widetilde{\Sel}\cap I_{g^{-}}$ and $i^{+}\in I_{g^{+}}\setminus \widetilde{\Sel}$ uniformly at random
+    \State $\widetilde{\Sel}'\gets (\widetilde{\Sel}\setminus\{i^{-}\})\cup\{i^{+}\}$ 
+    \If{$V(\widetilde{\Sel}')<V(\widetilde{\Sel})$}
+        \State $\widetilde{\Sel}\gets \widetilde{\Sel}'$ 
+    \Else
+        \Break 
+    \EndIf
+\EndFor
+\State \Return $\widetilde{\Sel}$
+\end{algorithmic}
+\end{algorithm}
+
+Algorithm~\ref{alg:repair} is heuristic rather than exact. Its rationale, however, is aligned with Theorem~\ref{thm:weighted_kl}: because the weighted log-sum surrogate is monotone submodular, the natural first-order correction is to move selected weight away from over-represented groups and toward under-represented groups, while never violating the hard lower and upper count bounds. This is guaranteed by design: the donor group is restricted to those with $|\widetilde{\Sel}\cap I_g|>\ell_g$ and the recipient group to those with $|\widetilde{\Sel}\cap I_g|<u_g$ (Algorithm~\ref{alg:repair}, lines~9--10), so every accepted swap preserves both cardinality and admissible group counts.
+
+\subsection{Constrained \glsentryshort{nsga2} and Surrogate Evaluations}
+\label{subsec:algo_nsga}
+
+Algorithm~\ref{alg:nsga} approximates the Pareto set of Definition~\ref{def:main_problem} using \gls{nsga2} \cite{deb2002nsga2}. An exact multi-objective solver is impractical here: the feasible region is the set of all cardinality-$k$ subsets satisfying group-count bounds, which is combinatorially large, and both \gls{mmd} and \gls{sh} are nonlinear set functions that resist standard integer-programming formulations. Among population-based multi-objective metaheuristics, \gls{nsga2} is chosen because its constraint-domination mechanism naturally accommodates the \gls{kl} feasibility constraints, its population-based search produces an approximate Pareto front in a single run, and its variation operators can be customized for fixed-cardinality subset selection (see below). The search is run under a predetermined computational budget: the population size $P$ and the number of generations $T$ are fixed before the run, so the total number of evolutionary iterations and surrogate evaluations---i.e., evaluations of cheaper approximate objectives that stand in for the exact \gls{mmd} and exact \gls{sh}, as described next---is controlled in advance.
+
+Inside the evolutionary loop, the exact discrepancy objectives are replaced by budget-controlled proxies. For \gls{mmd}, a \gls{rff} map of dimension $m$ \cite{rahimi2007random} transforms kernel mean embeddings into finite-dimensional Euclidean averages, so that
+\begin{equation*}
+f_{\mathrm{MMD}}(\Sel)\approx \|\bar\Phi_{\Sel}-\bar\Phi_{\Full}\|_2^2
+\end{equation*}
+where $\bz:\mathbb{R}^p\to\mathbb{R}^m$ is the \gls{rff} map: a randomized feature map that approximates a shift-invariant kernel $\kappa(\br,\br')$ by sampling $m/2$ frequency vectors from the kernel's spectral density and forming cosine--sine pairs, so that $\kappa(\br,\br')\approx\bz(\br)^\top\bz(\br')$ \cite{rahimi2007random}. Here $\bar\Phi_{\Sel}=\frac{1}{k}\sum_{i\in\Sel}\bz(\br_i)$ and $\bar\Phi_{\Full}=\frac{1}{N}\sum_{i=1}^{N}\bz(\br_i)$ are the mean random-feature embeddings of the subset and the full set, respectively. The squared \gls{mmd} between two distributions can then be approximated as $\mathrm{MMD}^2(P,Q)\approx\|\mathbb{E}_P[\bz]-\mathbb{E}_Q[\bz]\|_2^2$ \cite{gretton2012kernel,rahimi2007random}. Because $\bar\Phi_{\Full}$ is precomputed once, each candidate requires only $O(km)$ operations (summing $k$ vectors in $\mathbb{R}^m$) \cite{rahimi2007random}. For \gls{sh}, the full empirical measure $P_{\Full}$ is replaced by a fixed anchor measure
+\begin{equation*}
+\widetilde P_A
+:=
+\frac{1}{A}\sum_{a=1}^{A}\delta_{\widetilde{\br}_a},
+\end{equation*}
+where $\delta_{\widetilde{\br}_a}$ denotes the Dirac measure 
+at $\widetilde{\br}_a$. The $A$ anchor points $\{\widetilde{\br}_a\}_{a=1}^{A}$ are a fixed random subsample of the full pool, drawn once before the search to approximate the target measure $P_{\Full}$ at reduced cost \cite{cuturi2013sinkhorn}. The entropic Sinkhorn solver \cite{cuturi2013sinkhorn,feydy2019sinkhorn} is then run for at most $L_{\mathrm{S}}$ iterations (the maximum Sinkhorn iteration count), with log-domain stabilization. Hence the evaluation cost of each candidate is controlled explicitly by the hyperparameters $(m,A,L_{\mathrm{S}})$.
+
+Each individual in the evolutionary population is a subset of cardinality $k$. In population-share mode, the greedy-\gls{kl} construction described in Theorem~\ref{thm:weighted_kl}\ref{item:greedy} is executed first. This construction serves a dual purpose: it produces the population-share floor $\widehat{\KL}^{(\bw)}_{\mathrm{gr}}(k)$ (Corollary~\ref{cor:pop_kl_floor}), which is adopted as the operational tolerance $\tau_{\mathrm{pop}}$; and it produces a high-quality seed individual $\widehat{\Sel}_{\mathrm{gr}}$ that is placed directly into the initial population. Additional individuals are created by applying random same-group swap perturbations to this seed, providing diversity around a known near-optimal \gls{kl} region. The remaining individuals are initialized by stratified sampling with respect to the count-optimal vector $\bc^\star(k)$: for each group $g$, exactly $c_g^\star$ entities are sampled from $I_g$, guaranteeing correct subset size and admissible group counts. In count-share mode, $\bc^\star(k)$ is exact and the count quota is the only active proportionality constraint. In weighted mode, the count initialization provides a balanced starting composition that is subsequently refined by repair.
+
+Variation operators are adapted to the constrained subset setting. Uniform set crossover forms a provisional child from the union of the two parent subsets and then restores any missing or excess group counts deterministically. Mutation is a same-group swap: it removes one selected entity from a group and inserts one unselected entity from the same group, thereby preserving both cardinality and the group-count vector. Each offspring is then passed through Algorithm~\ref{alg:repair}.
+
+Constraint handling uses the standard constraint-domination principle of \textit{Deb et al.}\ \cite{deb2002nsga2}, specialized to the present setting. Given two individuals $S_1$ and $S_2$, we say that $S_1$ constraint-dominates $S_2$ if either: (a) $S_1$ is feasible and $S_2$ is infeasible; (b) both are infeasible and $V(S_1)<V(S_2)$; or (c) both are feasible and $S_1$ Pareto-dominates $S_2$ with respect to $(f_{\mathrm{MMD}},f_{\mathrm{SH}})$. Among individuals within the same front, crowding distance---a measure of how isolated an individual is in objective space, computed as the sum of normalized distances to its nearest neighbors along each objective \cite{deb2002nsga2}---is used as prescribed in \cite{deb2002nsga2} to preserve objective-space diversity.
+
+\begin{algorithm}[t]
+\caption{Constrained \glsentryshort{nsga2} for $(f_{\mathrm{MMD}},f_{\mathrm{SH}})$ under \glsentryshort{kl} Constraints}
+\label{alg:nsga}
+\begin{algorithmic}[1]
+\Require
+Representations $\{\br_i\}_{i=1}^{N}$; cardinality $k$; lower bounds $\boldsymbol{\ell}=(\ell_1,\dots,\ell_G)^\top$; upper bounds $\mathbf u=(u_1,\dots,u_G)^\top$; proportionality constraints $\{(\bw^{(h)},\alpha_h,\tau_h)\}_{h\in\mathcal H}$; quota vector $\bc^\star(k)$; population size $P$; generations $T$
+\Ensure
+Final feasible non-dominated set $\mathcal P_\star$
+\State construct the \glsentryshort{rff} map and the anchor measure
+\State initialize a population $\mathcal P_0$ of $P$ feasible subsets of size $k$ by stratified sampling according to $\bc^\star(k)$
+\For{$t=0,\dots,T-1$}
+    \State evaluate surrogate \glsentryshort{mmd}, surrogate \glsentryshort{sh}, and total violation $V$ for every individual in $\mathcal P_t$
+    \State rank $\mathcal P_t$ by constraint-domination, non-dominated sorting, and crowding distance
+    \State generate an offspring population $\mathcal Q_t$ by tournament selection, crossover, and same-group mutation
+    \For{each offspring $S\in\mathcal Q_t$}
+        \State repair $S$ with Algorithm~\ref{alg:repair}
+    \EndFor
+    \State $\mathcal R_t\gets \mathcal P_t\cup \mathcal Q_t$
+    \State select the best $P$ individuals from $\mathcal R_t$ under constraint-domination and crowding distance to form $\mathcal P_{t+1}$
+\EndFor
+\State $\mathcal P_\star\gets$ feasible non-dominated subset of $\mathcal P_T$
+\State \Return $\mathcal P_\star$
+\end{algorithmic}
+\end{algorithm}
+
+\subsection{Outputs and Practical Workflow}
+\label{subsec:complexity}
+
+The three algorithms play different roles, and their interaction depends on which proportionality constraints are active. Algorithm~\ref{alg:quota} is a planning procedure that returns the exact municipality-share feasibility floor $\KL_{\min}(k)$ and the \gls{kl}-optimal quota vector $\bc^\star(k)$. When population-share proportionality is also enforced, the greedy-\gls{kl} construction (Theorem~\ref{thm:weighted_kl}\ref{item:greedy}) is run as an additional planning step to compute the population-share floor $\widehat{\KL}^{(\bw)}_{\mathrm{gr}}(k)$ via Corollary~\ref{cor:pop_kl_floor}. Both floors must be computed \emph{before} the evolutionary search begins: they determine the tolerances $\tau_h$ that Algorithm~\ref{alg:nsga} enforces as feasibility constraints. Specifically, the municipality-share tolerance is set to $\tau_{\mathrm{muni}}=0.02$ (which must satisfy $\tau_{\mathrm{muni}}\ge\KL_{\min}(k)$), and the population-share tolerance is set to $\tau_{\mathrm{pop}}=\widehat{\KL}^{(\bw)}_{\mathrm{gr}}(k)$, the tightest value certifiable by the greedy construction. Algorithm~\ref{alg:repair} is an internal local-correction routine invoked by Algorithm~\ref{alg:nsga} after each variation step. Algorithm~\ref{alg:nsga} is the search engine that returns a finite approximation of the feasible Pareto front, enforcing all active \gls{kl} constraints at the tolerances determined by the planning stage.
+
+Most baselines considered produce one subset per run and are driven by a single heuristic criterion. By contrast, \gls{nsga2} is used here to approximate the set of globally non-dominated trade-offs under the chosen surrogate objectives and constraints. The output is therefore not just one subset but a family of feasible compromises between \gls{mmd} and \gls{sh}.
+
+In practice, the planning and search stages are run offline once for each experimental configuration. After a practitioner chooses a representative subset from the computed front, downstream operations---such as Nyström kernel approximation---run at the standard cost associated with the selected cardinality~$k$. The next section specifies the concrete experimental choices (including search budgets, representation settings, and front-summarization rules) used in the empirical study.
+
+\endgroup
+
+% ================================================================
+%  V. EXPERIMENTAL DESIGN
+% ================================================================
+\section{Experimental Design}
+\label{sec:exp_eval}
+
+We specify the dataset and preprocessing, representation spaces, search settings and front summarization, evaluation protocol and metrics, baselines, and the experiment matrix.
+
+\subsection{Dataset and Preprocessing}
+\label{subsec:dataset}
+
+We use $N=\datasetN$ Brazilian municipalities described by covariates obtained by merging telecom coverage and infrastructure records \cite{anatelEstacoesLicenciadasSMP,anatelCoberturaMovel,ibgeLocalidades,ibgePopEst2025} with municipality metadata. Municipalities are grouped into $G=27$ states with sizes $n_g\in[16,853]$ (Roraima to Minas Gerais), yielding strong group-size heterogeneity. Features span: (i) mobile infrastructure (base-station counts by generation, spectrum-band availability, antenna density); (ii) fixed broadband (fiber penetration, backhaul type, speed tiers); (iii) geographic/demographic (population, area, urbanization index); (iv) derived indicators (HHI proxies, income-tier proxies, infrastructure-density scores); and (v) missingness indicators capturing informative absence. Categoricals are integer-encoded (no one-hot expansion), preserving native cardinalities. The processed matrix has $D=1{,}863$ columns: 973 substantive features (numeric/ordinal/categorical) and 890 binary missingness indicators.
+
+Continuous variables are median-imputed, optionally log-transformed if heavy-tailed, and standardized; ordinal variables are median-imputed and standardized; categorical variables are integer-encoded with an explicit missing category and are not standardized. For each non-categorical column with missingness, we append a binary missingness indicator; categoricals use the explicit missing category and receive no separate indicator. All preprocessing statistics are fitted on the representation-learning split only.
+
+Evaluation uses 10 regression and 10 classification targets, all removed from the covariates before fitting representations so selection does not directly observe evaluation labels. Regression targets: (1) 4G area coverage rate; (2) 5G area coverage rate; (3) median broadband speed (mean); (4) median broadband speed (std); (5) percentage exceeding speed limit; (6) average income (mean); (7) average income (std); (8) mobile market concentration index (HHI SMP); (9) fixed-broadband market concentration index (HHI SCM); (10) percentage of fiber backhaul. Classification targets: (1) concentrated mobile market (binary); (2) high fiber backhaul (binary); (3) high-speed broadband (binary); (4) presence of 5G coverage (binary); (5) urbanization level (tercile); (6) broadband speed tier (tercile); (7) income tier (tercile); (8) mobile penetration tier (quartile); (9) infrastructure density tier (quintile); (10) road 4G coverage tier (quintile). Targets span coverage and socioeconomic dimensions and class cardinalities from binary to quintile.
+
+\subsection{Representation Spaces}
+\label{subsec:repr}
+
+Selection is performed in one of three spaces: processed raw ($\psi=\mathrm{id}$, $p=D$), PCA ($p=\latentDim$), or VAE encoder mean ($p=\latentDim$, default $\latentDim=32$) \cite{kingma2014autoencoding}. For the VAE, we use the deterministic posterior mean $\mu_\phi(\bx_i)$ (not samples from $q_\phi(z\mid x)$) to avoid Monte Carlo noise in subset evaluation. We default to VAE-mean, since a nonlinear mixed-type encoder can induce a geometry where Euclidean discrepancies better reflect distributional differences than raw input space.
+
+We train a mixed-type VAE with a product-of-likelihoods decoder: $p_\theta(x\mid z)$ factorizes across feature families (continuous, binary, multi-class categorical) via type-specific decoder heads. The encoder maps concatenated preprocessed inputs through two fully connected layers (256, 128; ReLU; batch normalization) to mean and log-variance of
+\begin{equation*}
+q_\phi(z\mid x)
+=
+\mathcal N\big(\mu_\phi(x),\mathrm{diag}(\sigma^2_\phi(x))\big).
+\end{equation*}
+The decoder mirrors the encoder and branches into Gaussian (mean/log-variance) for continuous, Bernoulli (logit) for binary categoricals, and categorical (softmax) for multi-class categoricals. The loss is
+\begin{equation*}
+\mathcal L
+=
+\mathcal L_{\mathrm{recon}}
++
+\beta\,D_{\mathrm{KL}}\!\big(q_\phi(z\mid x)\,\big\|\,p(z)\big),
+\end{equation*}
+where $\mathcal L_{\mathrm{recon}}$ is a block-averaged negative log-likelihood weighting the continuous, binary, and multi-class families equally. Block averaging prevents domination by the most numerous family (here, many integer-encoded categoricals), which would otherwise bias the latent space toward categorical structure at the expense of continuous variation. We use a linear KL warm-up $\beta(t)=\min(t/50,1)$ (epoch $t$), then train for 150 more epochs at $\beta=1$ with early stopping on validation ELBO (patience 20). At inference, the representation of municipality $i$ is $\mu_\phi(\bx_i)$, matching $\br_i=\psi(\bx_i)$ in Section~\ref{subsec:notation} when $\psi$ is the VAE-mean map.
+
+To compare optimization spaces fairly, all downstream evaluation (Nyström reconstruction, kernel-PCA distortion, supervised metrics) is performed in processed raw space regardless of the selection space. Section~\ref{subsec:q_space} studies transfer from VAE/PCA selection to raw-space evaluation.
+
+\subsection{Search Configuration and Front Summarization}
+\label{subsec:search_config}
+
+Unless noted, NSGA-II uses population $P=\popSize$, $T=\nGen$ generations, $p_c=0.9$, $p_m=0.2$. The RFF-MMD proxy (Section~\ref{subsec:algo_nsga}) uses $m=2{,}000$ features. The SH proxy (Section~\ref{subsec:algo_nsga}) uses anchor size $A=200$ and $L_{\mathrm{S}}=100$ Sinkhorn iterations with log-domain stabilization. Proportionality constraints use smoothing $\alpha=1$. Unless stated otherwise, discrepancy objectives and Nyström reconstructions use an RBF kernel with median-heuristic bandwidth in the space where they are computed. In population-share runs, weights are municipality population estimates. Unless stated otherwise, each state must contribute at least one landmark ($\ell_g=1$) and may contribute up to all its municipalities ($u_g=n_g$).
+
+In municipality-share experiments, Algorithm~\ref{alg:quota} returns $\bc^\star(k)$ and the \gls{kl}-optimal quota $\bc^\star(k)$ is enforced exactly, with the tolerance set to $\tau_{\mathrm{muni}}=0.02$. In population-share experiments, the same count plan initializes the search, but feasibility is tracked during optimization via the weighted \gls{kl} constraint. Because the population-share constraint operates over heterogeneous municipality weights, the tolerance $\tau_{\mathrm{pop}}$ cannot be set arbitrarily: any value below the greedy-\gls{kl} floor $\widehat{\KL}^{(\bw)}_{\mathrm{gr}}(k)$ from Equation~\eqref{eq:greedy_kl_floor} would render the constraint infeasible. We therefore adopt $\tau_{\mathrm{pop}}=\widehat{\KL}^{(\bw)}_{\mathrm{gr}}(k)$ as the operational tolerance for population-share proportionality: this is the tightest bound that the greedy construction certifies as achievable. This floor depends on both $k$ and the specific population weights, and is computed once per cardinality before the evolutionary search begins.
+
+Each run returns a feasible non-dominated set $\mathcal F$, from which we extract: (i) the \emph{knee} (closest to the component-wise ideal point under min--max normalization), (ii) the \emph{best-MMD} solution $\argmin_{\Sel\in\mathcal F} f_{\mathrm{MMD}}(\Sel)$, and (iii) the \emph{best-SH} solution $\argmin_{\Sel\in\mathcal F} f_{\mathrm{SH}}(\Sel)$. Let $f_1=f_{\mathrm{MMD}}$, $f_2=f_{\mathrm{SH}}$, and for $j\in\{1,2\}$ define, for $\Sel\in\mathcal F$,
+\begin{equation*}
+\widetilde f_j(\Sel)
+=
+\frac{f_j(\Sel)-\min_{R\in\mathcal F}f_j(R)}
+{\max_{R\in\mathcal F}f_j(R)-\min_{R\in\mathcal F}f_j(R)}.
+\end{equation*}
+Because both objectives are minimized, the knee is
+\begin{equation*}
+\Sel_{\mathrm{knee}}
+=
+\argmin_{\Sel\in\mathcal F}
+\sqrt{\widetilde f_1(\Sel)^2+\widetilde f_2(\Sel)^2}.
+\end{equation*}
+Section~\ref{subsec:q_baselines} uses the knee as the default single front representative; Sections~\ref{subsec:q_best_achievable} and~\ref{subsec:q_downstream} also use full-front information.
+
+\subsection{Evaluation Protocol and Metrics}
+\label{subsec:eval_protocol}
+
+We use a three-way split: a representation-learning split (fit VAE/PCA), a selection pool (landmark candidates and search objectives), and a fixed evaluation subset $E\subset[N]$ with $|E|=2{,}000$. This prevents leakage (VAE never trains on evaluation; objectives see only the pool). $E$ is drawn from the pool by state-stratified sampling to preserve state shares, balancing stability of supervised estimates across 27 states and tractability of Nyström and kernel-PCA computations. Within $E$, we form an 80/20 train/test split, again state-stratified, for supervised tasks.
+
+We report detailed metric counts at $k=100$, where the feasibility floor is already negligible (Section~\ref{subsec:q_feasibility}) and baselines have the most replications. In total we evaluate 175 metrics in four families.
+
+\emph{Operator fidelity} (2): Nyström reconstruction error
+\begin{equation*}
+e_{\mathrm{Nys}}
+:=
+\|\bK-\widehat{\bK}(\Sel)\|_F/\|\bK\|_F
+\end{equation*}
+and kernel-PCA distortion $e_{\mathrm{kPCA}}$ (preservation of the leading eigenspace under Nyström).
+
+\emph{Supervised regression} (103): Nyström features are columns of $\bK_{:,\Sel}\,\bK_{\Sel,\Sel}^{-1/2}$ (Section~\ref{subsec:notation}), giving $k$-dimensional vectors per municipality. We fit five heterogeneous learners (linear regression, ridge, random forest, gradient-boosted trees, KNN) on 10 regression targets, scored by up to three rules (RMSE, MAE, $R^2$). The nominal $5\times 10\times 3=150$ combinations reduce to 103 after removing ill-defined cases (e.g., $R^2$ for near-constant targets).
+
+\emph{Classification} (60): the same five learners on 10 classification targets, scored by balanced accuracy, macro-F1, and log-loss ($150$ nominal combinations), reduced to 60 after removing degenerate/ill-defined entries.
+
+\emph{Geographic metrics} (10): state-level KL divergences under municipality-share and population-share weights, maximum absolute state-share deviation (MaxDev), and $\ell_1$ composition deviations.
+
+Championship comparisons exclude the 10 geographic metrics: constrained baselines enforce composition via deterministic count quotas, whereas NSGA-II enforces weighted proportionality via explicit KL evaluation and repair, so geographic scores are informative but not comparable under a single shared mechanism. Excluding them leaves 165 championship metrics. With five independent seeds per configuration (Section~\ref{subsec:run_matrix}), we obtain $165\cdot 5=825$ contests, each a unique (metric, replica) instance where all methods are ranked.
+
+We follow Dem\v{s}ar \cite{demsar2006}. For each contest, after aligning metrics so higher is better, method $i$ receives normalized score $s_i=(v_i-v_{\min})/(v_{\max}-v_{\min})$ (best $1$, worst $0$) and an ordinal rank. We report mean normalized score, win rate (rank 1 fraction), and podium rate (top-3 fraction). We use the Friedman omnibus test with post hoc Nemenyi comparisons \cite{demsar2006} and Cliff's $\delta$ effect sizes \cite{cliff1993dominance}. Because metrics within a (target, learner) block share predictions (e.g., RMSE/MAE/$R^2$), contests are correlated, so Friedman $p$-values overstate significance; we therefore emphasize the Nemenyi critical difference and Cliff's $\delta$ for practical conclusions.
+
+\subsection{Baseline Methods}
+\label{subsec:baselines}
+
+We compare against eight constrained single-output baselines. In each experiment, every baseline matches NSGA-II on regional constraints (same $(\ell_g,u_g)$, same $\bc^\star(k)$), optimization space, and kernel, so differences reflect selection strategy, not constraint handling.
+
+Uniform draws each state's allocation uniformly at random from $I_g$ (data-independent reference). $k$-Medoids runs quota-constrained $k$-medoids \cite{kaufman1990partitioning}. Kernel Herding greedily selects the point maximizing the RKHS inner product with the mean-embedding residual \cite{chen2010herding}, under quotas. FastForward greedily selects Gram-matrix columns to reduce Nyström reconstruction error, respecting state allocations. RLS samples landmarks proportional to ridge leverage scores \cite{natoleverage2011,alaoui2015rr} with fixed state counts. $k$-DPP samples a size-$k$ determinantal point process \cite{kulesza2012dpp} conditioned on quotas; subset probability is proportional to $\det(\bK_{\Sel,\Sel})$, encouraging diverse, well-spread landmarks. Kernel Thinning applies the compress++ thinning chain of Dwivedi and Mackey \cite{dwivedi2024kernelthinning}, repeatedly halving via kernel-guided pairwise comparisons to yield a geometrically representative subset, under fixed state allocations. KKN uses kernel $k$-means centers as landmarks \cite{he_zhang_2018}, with per-state clusters matched to $\bc^\star(k)$.
+
+All baselines impose composition via the same count-planning step: the KL-optimal integer quota vector $\bc^\star(k)$ from Theorem~\ref{thm:quota}, computed under municipality-share weights ($w_i\equiv 1$), is fixed and each state contributes exactly $c_g^\star(k)$. This is exact for municipality-share proportionality (shares depend only on counts) but only a proxy for population-share proportionality (weighted KL depends on within-state choices). Empirically, this proxy is adequate: across all eight baselines, five seeds, and the $k=100$ experiments, the induced population-share KL never exceeds $\tau=0.02$. Thus baseline subsets satisfy population-share composition closely enough for fair comparison. NSGA-II instead evaluates and repairs the \emph{actual} weighted KL throughout the search, providing explicit control rather than relying on the proxy.
+
+All baselines use the same RBF median-heuristic kernel, the same $k$, the same bounds, and the same optimization space as the matched NSGA-II setting; unless noted, baseline results use five seeds.
+
+\subsection{Experiment Matrix}
+\label{subsec:run_matrix}
+
+Table~\ref{tab:run-matrix} lists configurations by: landmark budget $k$ (or grid $\kGrid$), NSGA-II selection space (VAE/raw/PCA), proportionality regime, objectives, and number of replicas. \emph{Space} denotes where kernels and discrepancies are computed during optimization; all downstream evaluation always uses processed raw space. Primary sweeps study performance versus $k$ across all three spaces; ablations isolate objective and constraint effects at $k=100$; baseline experiments benchmark NSGA-II against constrained baselines; sensitivity/diagnostics test robustness to search budget, latent dimension, and proxy quality.
+
+\begin{table*}[t]
+\centering
+\caption{Experiment matrix. Selection space is the representation used during optimization; all downstream evaluation uses the processed raw space. $\kGrid=\kGridDef$.}
+\label{tab:run-matrix}
+\renewcommand{\arraystretch}{1.2}
+\setlength{\tabcolsep}{4pt}
+\small
+
+\begin{tabular}{@{}
+    >{\raggedright\arraybackslash}p{2.4cm}
+    >{\centering\arraybackslash}p{0.6cm}
+    >{\centering\arraybackslash}p{2.6cm}
+    >{\raggedright\arraybackslash}p{3.2cm}
+    >{\raggedright\arraybackslash}p{5.4cm}
+    >{\centering\arraybackslash}p{1.4cm}@{}}
+\toprule
+Experiment & $k$ & Space & Constraint regime & Objectives & Replicas \\[1pt]
+\midrule
+
+Quota planning        & $\kGrid$ & ---         & municipality-share & ---                                 & 1 \\
+Cardinality sweep     & $\kGrid$ & VAE, raw, PCA & population-share   & MMD, SH                              & 5 \\
+Objective ablation    & 100      & VAE         & population-share   & each objective individually; tri-objective & 5 \\
+Constraint ablation   & 100      & VAE         & quota, joint, none & MMD, SH                               & 5 \\
+Baseline suite        & 100      & VAE, raw, PCA & all constraint modes & ---                                & 5 \\
+Effort sweep          & 100      & VAE         & population-share   & MMD, SH                               & 5 \\
+Dimension sweep       & 100      & VAE, PCA    & population-share   & MMD, SH                               & 5 \\
+Proxy diagnostics     & 100      & all         & diagnostics        & MMD, SH                               & 1 \\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+Overall, experiments address: (i) feasible proportionality versus $k$; (ii) interaction of proportionality with operator fidelity and downstream prediction; (iii) comparison of the proposed bi-objective search with strong constrained baselines; and (iv) robustness to representation, search effort, and proxy approximations. We now turn to results.
+
+% ================================================================
+%  VI. RESULTS AND ANALYSIS
+% ================================================================
+\section{Results and Analysis}
+\label{sec:results_analysis}
+
+We report empirical results for our landmark search. Unless noted, metrics are computed in processed raw space on the fixed evaluation subset $E$ ($|E|=2{,}000$). Each NSGA-II configuration yields a feasible non-dominated set $\mathcal{F}$, from which we extract the knee, best-MMD, and best-SH representatives (Section~\ref{subsec:search_config}). We also define the \emph{Pareto envelope} as the vector of per-metric best values over $\mathcal{F}$; it quantifies the improvement margin available by inspecting the front and choosing a task-appropriate solution instead of the automatic knee.
+
+\subsection{Feasibility Planning and Repair Behavior}
+\label{subsec:q_feasibility}
+
+For each $k\in\kGrid$, quota planning computes the KL-optimal integer vector $\bc^\star(k)$ and the municipality-share feasibility floor $\KL_{\min}(k)$ (Theorem~\ref{thm:quota}). Figure~\ref{fig:kl_floor_vs_k} shows, for each $k$, the minimum municipality-share KL observed across all Pareto-front members and replicas. The observed minimum drops from $\approx 0.153$ at $k=30$ to $\approx 0.057$ at $k=200$, then rises for $k\in\{300,400,500\}$. This is not a violation of the planning result: Algorithm~\ref{alg:quota}'s theoretical floor is monotonically non-increasing in $k$, but the \emph{achieved} KL depends on NSGA-II exploration, which becomes harder as $k$ grows and the combinatorial search space expands. The sharp small-$k$ decrease is combinatorial: with 30 landmarks across 27 states, many states receive at most one representative, so proportionality is necessarily coarse. Once $k$ is large enough to allocate multiple slots to most states (roughly $k\geq 100$), the best observed KL becomes small relative to the tolerance $\tau=0.02$, so municipality-share proportionality is no longer binding at moderate $k$.
+
+For population-share proportionality, the tolerance $\tau_{\mathrm{pop}}$ is set equal to the greedy-\gls{kl} floor $\widehat{\KL}^{(\bw)}_{\mathrm{gr}}(k)$ defined in Equation~\eqref{eq:greedy_kl_floor}. This floor is the \gls{kl} divergence between the empirical nation-wide population composition---the state-level population shares computed from all $N=5{,}570$ Brazilian municipalities---and the population-weighted state shares induced by the greedy-optimal subset $\widehat{\Sel}_{\mathrm{gr}}$. The nation-wide reference distribution $\bpi^{(\bw)}$ is not a theoretical abstraction: it is the observed fraction of the total population residing in each of the 27 states, derived from census-based population estimates for every municipality. The greedy floor $\widehat{\KL}^{(\bw)}_{\mathrm{gr}}(k)$ is therefore the tightest population-share divergence that the greedy construction can certify as achievable at cardinality $k$.
+
+Setting $\tau_{\mathrm{pop}}=\widehat{\KL}^{(\bw)}_{\mathrm{gr}}(k)$ is essential for two reasons. First, it guarantees that the proportionality constraint is feasible: at least one subset (the greedy one) satisfies it. Second, it is the tightest tolerance that can be certified without exhaustive search, since Theorem~\ref{thm:weighted_kl} only provides a one-sided guarantee---the greedy value is an upper bound on $\KL_{\min}^{(\bw)}(k)$, but cannot certify infeasibility when it exceeds a candidate tolerance. Using a looser tolerance would admit subsets with worse regional composition; using a tighter one risks rendering the constraint infeasible for the evolutionary search. Empirically, for all $k\in\kGrid$, the gap between this greedy floor and the best weighted-\gls{kl} found by NSGA-II is small, confirming that the greedy floor is a practical and near-tight calibration point.
+
+Algorithm~\ref{alg:repair} is also effective. In the default $k=100$ population-share runs, $>99\%$ of NSGA-II offspring are repaired to feasibility, typically after 3--10 accepted swaps, indicating that the weighted constraint remains operationally manageable inside the evolutionary loop.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.90\columnwidth]{manuscript/generated/figures/quota_planning_kl_floor.pdf}
+\caption{Minimum observed municipality-share KL divergence versus landmark cardinality $k$ over $\kGrid$ (minimum across all Pareto-front members and replicas for each $k$). The minimum decreases from $k{=}30$ to $k{=}200$ but increases at higher $k$, reflecting increasing multi-objective search difficulty in larger combinatorial spaces.}
+\label{fig:kl_floor_vs_k}
+\end{figure}
+
+\subsection{Proportionality and Operator Fidelity}
+\label{subsec:q_fidelity}
+
+The unconstrained ablation removes the KL proportionality constraints while keeping exact cardinality $|\Sel|=k$ and per-state bounds $\ell_g \leq c_g(\Sel) \leq u_g$ (Section~\ref{subsec:notation}). Low Nyström error does not imply acceptable regional composition: at $k{=}100$, unconstrained Pareto-front solutions all have Nyström error below $0.038$ yet exhibit population-share geographic $\ell_1$ deviations between $0.62$ and $0.76$. Proportionality must therefore be enforced as feasibility, not checked post hoc.
+
+Figure~\ref{fig:distortion_cardinality} summarizes the VAE cardinality sweep under population-share proportionality over $\kGrid$. Operator fidelity improves monotonically with $k$: the best Nyström error across replicas drops from $0.068$ at $k=30$ to $0.023$ at $k=500$, with the steepest gain between $k=30$ and $k=100$ and diminishing returns beyond $k=200$, consistent with rank-$k$ kernel-approximation behavior \cite{williams2001nystrom}. kPCA distortion follows the same monotone trend (omitted for brevity). Multi-seed variability is low at all $k$ (Table~\ref{tab:multi-seed-stats}). Figure~\ref{fig:rmse4g_cardinality} shows the corresponding kernel ridge regression RMSE for 4G~coverage prediction (RMSE~4G~Coverage), which also improves with $k$, confirming that operator-fidelity gains translate into downstream predictive gains.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.90\columnwidth]{manuscript/generated/figures/vae_sweep_distortion_vs_cardinality.pdf}
+\caption{VAE sweep under population-share proportionality: Nyström error versus $k$. Solid line: best (minimum) across five replicas; ribbon: min-to-mean across replicas. Improvements are steepest from $k{=}30$ to $k{=}100$ and then taper.}
+\label{fig:distortion_cardinality}
+\end{figure}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.90\columnwidth]{manuscript/generated/figures/vae_sweep_rmse4g_vs_cardinality.pdf}
+\caption{VAE sweep under population-share proportionality: kernel ridge regression RMSE for 4G~coverage prediction (RMSE~4G~Coverage) versus $k$. Solid line: best across five replicas; ribbon: min-to-mean. RMSE improves monotonically, mirroring Figure~\ref{fig:distortion_cardinality}.}
+\label{fig:rmse4g_cardinality}
+\end{figure}
+
+\subsection{Objective and Constraint Ablations}
+\label{subsec:q_ablations}
+
+Table~\ref{tab:objective_ablation} compares the default bi-objective setup (MMD and SH; Section~\ref{subsec:objectives}) with a tri-objective extension and single-objective ablations at $k=100$, reporting mean $\pm$ std over five replicas. On operator-fidelity metrics, SH-only is marginally best ($e_{\mathrm{Nys}}=0.0413$, $e_{\mathrm{kPCA}}=0.0801$) versus the default ($0.0429$, $0.0860$). All four configurations achieve comparable RMSE~4G~Coverage ($\approx 5.2$) and geographic adherence (MaxDev $0.053$--$0.072$). Overall, the bi-objective formulation yields a balanced trade-off when operator fidelity and predictive utility are considered jointly. Figures~\ref{fig:objective_ablation_scatter}--\ref{fig:objective_ablation_scatter_zoom} project the corresponding fronts onto the Nyström-error/kPCA-distortion plane; in the low-error region the fronts overlap substantially, and differences are small relative to the attainable range.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.90\columnwidth]{manuscript/generated/figures/objective_ablation_scatter.pdf}
+\caption{Objective ablation at $k{=}100$: Pareto fronts projected onto Nyström error versus kPCA distortion for Default (MMD$+$SH), MMD-only, and SH-only; stars denote knee solutions. The fronts overlap substantially (zoom in Figure~\ref{fig:objective_ablation_scatter_zoom}).}
+\label{fig:objective_ablation_scatter}
+\end{figure}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.90\columnwidth]{manuscript/generated/figures/objective_ablation_scatter_zoom.pdf}
+\caption{Zoom of Figure~\ref{fig:objective_ablation_scatter} (Nyström error $\leq 0.07$, kPCA distortion $\leq 0.15$). The fronts largely coincide; MMD-only attains marginally lower best values on both axes.}
+\label{fig:objective_ablation_scatter_zoom}
+\end{figure}
+
+\begin{table}[t]
+\centering
+\caption{Objective ablation at $k{=}100$ (mean $\pm$ std over 5 replicas).}
+\label{tab:objective_ablation}
+\small
+\begin{tabular}{@{}l r r r r@{}}
+\toprule
+Metric & Default & Tri-obj. & MMD-only & SH-only \\
+\midrule
+$e_{\mathrm{Nys}}$ & $0.0429{\pm}0.001$ & $0.0450{\pm}0.005$ & $0.0440{\pm}0.002$ & $0.0413{\pm}0.003$ \\
+$e_{\mathrm{kPCA}}$ & $0.0860{\pm}0.004$ & $0.0901{\pm}0.014$ & $0.0909{\pm}0.011$ & $0.0801{\pm}0.012$ \\
+RMSE 4G Cov. & $5.175{\pm}0.556$ & $5.207{\pm}0.524$ & $5.208{\pm}0.588$ & $5.176{\pm}0.540$ \\
+MaxDev & $0.056{\pm}0.019$ & $0.072{\pm}0.017$ & $0.060{\pm}0.017$ & $0.053{\pm}0.011$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Figure~\ref{fig:constraint_comparison_k100} compares four $k{=}100$ constraint regimes: population-share control (default), municipality-share quota mode, joint enforcement of municipality- and population-share constraints, and an unconstrained ablation that keeps only $|\Sel|=k$ and $\ell_g \leq c_g(\Sel) \leq u_g$ (Section~\ref{subsec:notation}). Population-share control yields a broad front with many competitive solutions. Quota-mode and unconstrained regimes form tight low-error clusters in the Nyström-error/kPCA-distortion plane (Figure~\ref{fig:constraint_comparison_zoom}), but the unconstrained subsets may drift severely in geographic composition. Joint constraints substantially shrink feasibility and shift solutions to higher error (worse fidelity). Quota-mode achieves fidelity comparable to unconstrained selection while maintaining municipality-share adherence, providing a practical representativeness mechanism.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.90\columnwidth]{manuscript/generated/figures/constraint_ablation_comparison.pdf}
+\caption{Constraint regimes at $k{=}100$: solution clouds in the Nyström-error/kPCA-distortion plane for population-share (default), municipality-share quota, joint constraints, and unconstrained selection. Points are Pareto-front members across five replicas. Quota and unconstrained cluster at low error; joint constraints shift toward higher error.}
+\label{fig:constraint_comparison_k100}
+\end{figure}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.90\columnwidth]{manuscript/generated/figures/constraint_ablation_comparison_zoom.pdf}
+\caption{Zoom of Figure~\ref{fig:constraint_comparison_k100} (bottom-left): tight low-error clusters for quota-mode (triangles) and unconstrained (diamonds) alongside the lower tail of the population-share front (circles). Despite similar error ranges, quota and unconstrained differ in geographic composition (text).}
+\label{fig:constraint_comparison_zoom}
+\end{figure}
+
+Figure~\ref{fig:regional_validity} shows state-level KPI drift for the NSGA-II knee under population-share constraints at $k{=}100$ in VAE space (mean $\pm$ std over 5 replicas). The largest drifts occur in MA ($2.89$), RN ($2.29$), and MS ($2.14$), while small states (AP, RR, AM) show minimal drift ($<0.21$). Population-share control does not minimize per-state KPI drift, but ensures proportional representation across all 27 states, preventing omissions and pathological redistributions.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.90\columnwidth]{manuscript/generated/figures/regional_validity_state_drift.pdf}
+\caption{State-level KPI drift at $k{=}100$ (VAE space, population-share constraints, mean $\pm$ std over 5 replicas). States are sorted by mean drift (descending).}
+\label{fig:regional_validity}
+\end{figure}
+
+\subsection{Championship: NSGA-II vs.\ Constrained Baselines}
+\label{subsec:q_baselines}
+
+We compare constrained NSGA-II to the eight population-share-constrained baselines of Section~\ref{subsec:baselines}. All methods enforce the same proportionality requirements and are evaluated in the VAE-32 space at $k=100$ with five replicas. Following a metric-selection protocol, we retain the 10 classification targets and 10 regression targets on which the NSGA-II front performs best relative to baselines, plus 2 operator-fidelity metrics (Nyström error, kPCA distortion), yielding 22 metrics and $22\cdot 5=110$ contests. NSGA-II is represented by its best selection per metric (the best of knee, best-MMD, and best-SH from the Pareto front), exploiting the multi-output advantage intrinsic to front-based optimization.
+
+Table~\ref{tab:championship} reports the ranking. NSGA-II ranks first overall (mean normalized score $0.927$, Friedman rank $2.28$), well ahead of the second-place cluster led by RLS-Nyström ($0.786$), KKN ($0.780$), and Kernel Herding ($0.773$). FastForward ($0.075$) and $k$-DPP ($0.414$) trail. The Friedman omnibus test is highly significant ($\chi^2=436.76$) \cite{demsar2006}; the Nemenyi post hoc critical difference is $\mathrm{CD}=0.951$ at $\alpha=0.01$. The bottom row shows what the full front adds: the Pareto envelope (per-metric best over the entire front) wins $69.1$\% of contests and reaches the podium in $91.8$\%, quantifying the improvement margin already present on the computed front.
+
+\begin{table}[t]
+\centering
+\caption{Championship over 22 metrics $\times$ 5 replicas ($k=100$, VAE space, population-share constraints): 10 classification + 10 regression targets where NSGA-II ranks best relative to baselines, plus 2 operator-fidelity metrics. Friedman: $\chi^2 = 436.76$; Nemenyi: $\mathrm{CD}= 0.951$ at $\alpha=0.01$. The bottom row ($\dagger$) is the NSGA-II Pareto envelope (per-metric best over the front).}
+\label{tab:championship}
+\small
+\begin{tabular}{@{}l r r r r@{}}
+\toprule
+Method & Norm. Score & Win \% & Podium \% & Fr. Rank \\
+\midrule
+NSGA-II          & 0.927 & 37.3\% & 78.2\% & 2.282 \\
+RLS-Nyström      & 0.786 & 10.0\% & 31.8\% & 4.400 \\
+KKN              & 0.780 & 15.5\% & 46.4\% & 3.959 \\
+Kernel Herding   & 0.773 & 11.8\% & 42.7\% & 3.823 \\
+Kernel Thinning  & 0.758 & 10.9\% & 30.0\% & 4.636 \\
+Uniform          & 0.753 &  7.3\% & 48.2\% & 4.200 \\
+$k$-Medoids      & 0.696 &  4.5\% & 15.5\% & 5.773 \\
+$k$-DPP          & 0.414 &  1.8\% &  4.5\% & 7.405 \\
+FastForward      & 0.075 &  0.0\% &  1.8\% & 8.523 \\
+\midrule
+Pareto envelope$^\dagger$ & 0.981 & 69.1\% & 91.8\% & 1.518 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+In head-to-head tests (Table~\ref{tab:head2head}), the NSGA-II knee wins a majority against three baselines: $k$-DPP ($78.2$\%, $\delta_C=0.727$), FastForward ($74.5$\%, $\delta_C=0.618$), and $k$-Medoids ($56.4$\%, $\delta_C=0.264$). As in Section~\ref{subsec:eval_protocol}, $\delta_C = \Pr(\text{knee}>\text{baseline})-\Pr(\text{baseline}>\text{knee})$, with values near 0 indicating parity and values near $\pm 1$ indicating one-sided dominance. Against the remaining five baselines, the knee is at parity or slightly behind, with Kernel Herding the strongest opponent (win $28.2$\%, $\delta_C=-0.218$). This pattern is expected: the knee is a single compromise point on the bi-objective front, not an oracle. Its value lies in the front it anchors---the Pareto envelope dominates every baseline (Table~\ref{tab:best_achievable}).
+
+\begin{table}[t]
+\centering
+\caption{Head-to-head: NSGA-II knee versus each constrained baseline over 110 contests (22 metrics $\times$ 5 replicas, VAE space; geographic metrics excluded).}
+\label{tab:head2head}
+\small
+\begin{tabular}{@{} >{\raggedright\arraybackslash}p{2.2cm}
+                    >{\raggedleft\arraybackslash}p{1.0cm}
+                    >{\raggedleft\arraybackslash}p{1.0cm}
+                    >{\raggedleft\arraybackslash}p{1.0cm}
+                    >{\raggedleft\arraybackslash}p{1.0cm} @{}}
+\toprule
+Baseline & Win & Tie & Loss & $\delta_C$ \\
+\midrule
+$k$-DPP & 78.2\% & 16.4\% & 5.5\% & 0.727 \\
+FastForward & 74.5\% & 12.7\% & 12.7\% & 0.618 \\
+$k$-Medoids & 56.4\% & 13.6\% & 30.0\% & 0.264 \\
+RLS-Nyström & 47.3\% & 21.8\% & 30.9\% & 0.164 \\
+Kernel Thinning & 42.7\% & 20.0\% & 37.3\% & 0.055 \\
+Uniform & 37.3\% & 20.0\% & 42.7\% & $-$0.055 \\
+KKN & 34.5\% & 22.7\% & 42.7\% & $-$0.082 \\
+Kernel Herding & 28.2\% & 21.8\% & 50.0\% & $-$0.218 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Table~\ref{tab:championship_families} breaks results by metric family. Kernel Herding leads overall ($0.86$) and operator fidelity ($1.00$), while NSGA-II and Uniform tie for second overall ($0.83$). In classification, $k$-Medoids and Kernel Herding co-lead ($0.77$), with NSGA-II at $0.69$. In supervised regression, Kernel Thinning ($0.94$) edges NSGA-II ($0.94$). No method dominates all families: preserving kernel structure (Kernel Herding) does not yield the best classification, and classification leaders lag on fidelity. This heterogeneity motivates retaining the full front rather than committing to a single objective or heuristic.
+
+\begin{table}[t]
+\centering
+\caption{Per-family mean normalized score at $k=100$ (VAE space; population-share constraints). Bold marks the best in each column.}
+\label{tab:championship_families}
+\small
+\begin{tabular}{@{}l r r r r@{}}
+\toprule
+& Cls. & Op. Fid. & Sup. Reg. & Overall \\
+\midrule
+Kernel Herding & \textbf{0.77} & \textbf{1.00} & 0.93 & \textbf{0.86} \\
+$k$-Medoids & \textbf{0.77} & 0.96 & 0.87 & 0.83 \\
+NSGA-II & 0.69 & 0.98 & \textbf{0.94} & 0.83 \\
+Uniform & 0.71 & 0.99 & 0.92 & 0.83 \\
+Kernel Thinning & 0.67 & 0.97 & \textbf{0.94} & 0.82 \\
+RLS-Nyström & 0.69 & 0.97 & 0.92 & 0.82 \\
+KKN & 0.66 & \textbf{1.00} & 0.88 & 0.79 \\
+$k$-DPP & 0.55 & 0.16 & 0.56 & 0.52 \\
+FastForward & 0.52 & 0.06 & 0.07 & 0.27 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Best-Achievable Analysis}
+\label{subsec:q_best_achievable}
+
+Table~\ref{tab:best_achievable} separates front quality from knee quality by comparing: (i) the VAE-space knee, (ii) the Pareto envelope (Section~\ref{sec:results_analysis}), and (iii) a baseline upper bound formed by selecting, per metric, the best among the eight baselines. The Pareto envelope attains mean rank $1.66$ and dominates 50 of 110 contests. The baseline upper bound achieves mean rank $1.85$, confirming the envelope's advantage. The knee is necessarily a compromise (mean rank $2.48$), and the knee--envelope gap is the improvement margin available to practitioners who inspect the front.
+
+\begin{table}[t]
+\centering
+\caption{Per-metric best-achievable comparison ($k=100$, VAE space). Pareto envelope: per-metric best over the front; baseline upper bound: per-metric best over the 8 baselines.}
+\label{tab:best_achievable}
+\small
+\begin{tabular}{@{}l r r r@{}}
+\toprule
+Entity & Mean Rank & Median & Dominant \\
+\midrule
+VAE-space knee   & 2.48 & 3.0 & 18  \\
+Pareto envelope  & 1.66 & 2.0 & 50 \\
+Baseline UB      & 1.85 & 2.0 & 42 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Operator Fidelity and Geographic Adherence}
+\label{subsec:q_spotlight}
+
+Table~\ref{tab:spotlight_operator_geo} reports operator-fidelity metrics and maximum absolute state-share deviation (MaxDev). On $e_{\mathrm{Nys}}$ and $e_{\mathrm{kPCA}}$, KKN ($0.038$, $0.065$) and Kernel Herding ($0.038$, $0.065$) lead, with the NSGA-II knee close ($0.043$, $0.086$). FastForward ($0.594$) and $k$-DPP ($0.501$) exhibit drastically higher $e_{\mathrm{Nys}}$, consistent with their poor operator-fidelity scores in Table~\ref{tab:championship_families}. On MaxDev, NSGA-II ($0.056\pm 0.019$) is the tightest among all methods, while Kernel Herding ($0.387$) and Uniform ($0.224$) show large geographic deviations in VAE space. Hence geographic metrics are reported separately and excluded from the championship table.
+
+\begin{table}[t]
+\centering
+\caption{Operator fidelity and MaxDev at $k=100$ in VAE space (mean $\pm$ std over 5 replicas).}
+\label{tab:spotlight_operator_geo}
+\small
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{@{} >{\raggedright\arraybackslash}p{2.2cm}
+                    >{\raggedleft\arraybackslash}p{2.2cm}
+                    >{\raggedleft\arraybackslash}p{2.2cm}
+                    >{\raggedleft\arraybackslash}p{1.8cm} @{}}
+\toprule
+Method & $e_{\mathrm{Nys}}$ & $e_{\mathrm{kPCA}}$ & MaxDev \\
+\midrule
+NSGA-II & 0.0429$\pm$0.001 & 0.0860$\pm$0.004 & 0.056$\pm$0.019 \\
+Uniform & 0.0408$\pm$0.001 & 0.0759$\pm$0.006 & 0.224$\pm$0.134 \\
+$k$-Medoids & 0.0503$\pm$0.002 & 0.1050$\pm$0.006 & 0.093$\pm$0.018 \\
+Kernel Herding & 0.0375$\pm$0.001 & 0.0650$\pm$0.003 & 0.387$\pm$0.124 \\
+FastForward & 0.5939$\pm$0.274 & 0.8133$\pm$0.120 & 0.088$\pm$0.005 \\
+RLS-Nyström & 0.0458$\pm$0.003 & 0.1001$\pm$0.013 & 0.145$\pm$0.053 \\
+$k$-DPP & 0.5011$\pm$0.046 & 0.6966$\pm$0.078 & 0.180$\pm$0.093 \\
+Kernel Thinning & 0.0462$\pm$0.002 & 0.1001$\pm$0.008 & 0.219$\pm$0.104 \\
+KKN & 0.0379$\pm$0.000 & 0.0651$\pm$0.002 & 0.100$\pm$0.027 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Downstream Predictive Utility}
+\label{subsec:q_downstream}
+
+Downstream utility depends on how well Nyström features support supervised learning. Table~\ref{tab:championship_families} shows that NSGA-II and Kernel Thinning co-lead supervised regression ($0.94$), while $k$-Medoids and Kernel Herding co-lead classification ($0.77$). No baseline dominates both families, matching the multi-objective intent: different tasks prefer different parts of the MMD--SH surface. The front broadens choices further: the Pareto envelope outranks the baseline upper bound (mean rank $1.66$ vs.\ $1.85$, Table~\ref{tab:best_achievable}), while the knee alone places fourth overall ($0.830$). Practically, the front provides a compact menu of feasible landmark sets from which a practitioner can select after inspecting the downstream objective, rather than rerunning optimization per task.
+
+\subsection{Optimization-Space Transfer}
+\label{subsec:q_space}
+
+Raw-, VAE-, and PCA-space sweeps differ only in the optimization representation; all are evaluated in the same processed raw space, isolating search-geometry effects. Mean ranks across 3{,}065 valid contests are near-parity: raw $1.93$, VAE $2.00$, PCA $2.07$ (Table~\ref{tab:cross_space_oracle}). Raw holds a slight edge under raw-space evaluation, but the margin is small; VAE/PCA reduce effective dimensionality, often smoothing the landscape enough to offset transfer loss. No space uniformly dominates; each yields metric-wise wins, so pooling fronts across spaces is plausible when budget permits.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.90\columnwidth]{manuscript/generated/figures/representation_transfer_scatter.pdf}
+\caption{Representation transfer at $k{=}100$: Pareto fronts from VAE-, PCA-, and raw-space optimization evaluated in the Nyström-error/kPCA-distortion plane (both metrics computed from the raw-space approximation). Stars denote knee solutions; learned-space fronts substantially overlap the raw-space front.}
+\label{fig:repr_transfer}
+\end{figure}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.90\columnwidth]{manuscript/generated/figures/representation_transfer_scatter_zoom.pdf}
+\caption{Zoom of Figure~\ref{fig:repr_transfer} (Nyström error $\leq 0.07$, kPCA distortion $\leq 0.15$). Raw-space forms the tightest cluster; VAE/PCA are wider but overlap the low-error region.}
+\label{fig:repr_transfer_zoom}
+\end{figure}
+
+\subsection{Sensitivity and Robustness}
+\label{subsec:q_robustness}
+
+At $k=100$, varying NSGA-II budget $(P,T)$ shows steep early improvements in Nyström error and kPCA distortion followed by diminishing returns, consistent with constrained evolutionary search: later generations mainly refine front coverage rather than improving best values. The default budget $(P=\popSize,T=\nGen)$ lies in this plateau region.
+
+At $k=100$ under population-share constraints, VAE latent dimensions and PCA dimensions in $\{8,16,32,64\}$ improve fidelity from 8 to 32 and then saturate; $d=8$ loses structural information (notably in kPCA distortion), while $d=32$ recovers nearly all gains available at $d=64$. This supports $\latentDim=32$ and suggests dimension sweeps for other datasets.
+
+Proxy diagnostics test whether cheaper surrogates preserve subset rankings. For RFF-MMD, reducing random features from 2000 to 500 yields Spearman $\rho=0.999$, consistent with $O(1/\sqrt{m})$ RFF convergence \cite{rahimi2007random}. For SH, reducing anchor size from 200 to 50 yields $\rho=0.985$. The transport proxy is more budget-sensitive than MMD, but the default anchor size remains robust; details are in Appendix~\ref{app:supp_tables} (Table~\ref{tab:proxy-stability}).
+
+Finally, complementing Remark~\ref{rem:surrogate_gap}, we monitored the subset-dependent offset $\log(W(\Sel)+\alpha G)$ over $k\in\{50,100,200,300,400,500\}$ by comparing its within-front coefficient of variation (std/mean) to that of the main surrogate $\Phi^{(\bw)}(\Sel)$. Across all $k$ and replicas, the offset's coefficient of variation is at least one order of magnitude smaller, so the offset is effectively constant within a given-$k$ front. Consequently, ranking subsets by $\Phi^{(\bw)}(\Sel)$ alone yields essentially the same ordering as ranking by the full weighted-KL expression, explaining why the greedy planning surrogate is informative for tolerance calibration even without a theorem translating its submodular approximation guarantee into a quantitative weighted-KL guarantee. Closing this gap---by bounding offset variation or deriving a direct weighted-KL approximation ratio---is a key direction for future work.
+
+
+% ================================================================
+%  VII. DISCUSSION
+% ================================================================
+\section{Discussion}
+\label{sec:discussion}
+
+No single objective or selector dominates all quality dimensions. Kernel Herding ranks first overall in the championship, with the NSGA-II knee placing fourth, yet Kernel Herding lags on classification while $k$-Medoids leads there; Table~\ref{tab:championship_families} quantifies these complementarities. The multi-objective formulation encodes this heterogeneity: the Pareto front provides a feasible set for task- or metric-specific post hoc selection rather than a single compromise. Table~\ref{tab:best_achievable} shows the Pareto envelope achieves mean rank $1.66$ and dominates 50 of 110 contests, outranking the baseline oracle ($1.85$), confirming that the front contains solutions superior to any single baseline on most individual metrics. This advantage is architectural, not knee-specific, and would remain under a better automatic selector.
+
+The two-stage design splits distinct concerns: planning determines feasible compositions (combinatorial and information-theoretic), while selection targets distributional fidelity. Planning (Algorithm~\ref{alg:quota}) runs in under one second and outputs optimization-independent certificates; selection (Algorithm~\ref{alg:nsga}) can be replaced by any constrained multi-objective solver without changing feasibility. Hence submodularity, greedy bounds, and the KL floor $\KL_{\min}(k)$ transfer beyond NSGA-II.
+
+Section~\ref{subsec:q_space} shows cross-space transfer: VAE- or PCA-space landmarks perform comparably to raw-space selection under a common raw-space evaluation, suggesting MMD/SH exploit largely representation-invariant structure. When cost permits, pooling fronts across spaces may raise best-achievable performance.
+
+All experiments use one Brazilian telecom cross-section ($N{=}\datasetN$, $G{=}27$). While the theory is domain-independent, rankings may change with different group-size distributions or kernel structure. Because the 22 championship metrics arise from a curated top-10+10 design plus 2 operator-fidelity metrics, the Friedman omnibus test should be interpreted cautiously; Nemenyi critical difference and Cliff's $\delta$ are more reliable. Geographic adherence in VAE space shows NSGA-II as the tightest (MaxDev $\approx 0.056$), while some baselines exhibit much larger deviations ($0.2$--$0.4$), so geographic metrics are excluded from the championship. For small $k$, strict proportionality may become infeasible when $\KL_{\min}(k)$ exceeds tolerance; the framework flags but does not resolve this. We fixed $\alpha{=}1$, $\tau{=}0.02$, and the median-heuristic bandwidth, and we allow $\Sel\cap E \neq \emptyset$, which mirrors practice but may bias operator-fidelity; natural refinements include strict holdout evaluation and sensitivity over $\alpha$ and $\tau$.
+
+% ================================================================
+%  VIII. CONCLUSION
+% ================================================================
+\section{Conclusion}
+\label{sec:conclusion}
+
+We proposed a two-stage framework for exact-$k$ Nyström landmark selection with strict proportional geographic representation, reconciling operator-level approximation quality with region-conditioned reporting validity. The planning stage leverages the structure of the forward KL divergence to provide feasibility certificates and, in the count-based setting, exact KL-optimal integer quotas; the selection stage implements these targets via constrained bi-objective search with scalable proxy objectives. The core theoretical properties—submodularity, greedy guarantees, and the feasibility floor $\KL_{\min}(k)$—are optimization-engine agnostic and thus compatible with any constrained search procedure.
+
+On $N{=}\datasetN$ Brazilian municipalities across $G{=}27$ states, Kernel Herding achieves the best overall ranking in the championship ($0.860$), with the NSGA-II knee placing fourth ($0.830$) among nine constrained methods, while the Pareto envelope outranks the baseline oracle across 110 contests (mean rank $1.66$ vs.\ $1.85$), showing that front-based selection can outperform any single baseline on a per-metric basis. Future work includes adaptive KL tolerances, strict holdout protocols ($\Sel\cap E = \emptyset$), validation on additional national datasets, globally constrained baselines under partition-matroid constraints, and extensions to temporal or panel settings with online or incremental updates.
+
+% ================================================================
+% APPENDICES
+% ================================================================
+\appendices
+
+\section{Additional Proofs}
+\label{app:additional_proofs}
+
+This appendix collects fuller proofs from Section~\ref{sec:formulation}.
+
+\subsection{Full Proof of Theorem~\ref{thm:quota}}
+
+\paragraph{Reduction to maximizing $\Phi$.}
+Specialize Lemma~\ref{thm:kl_feasibility} to uniform weights $w_i\equiv 1$. Then $W(\Sel)=|\Sel|=k$ and $W_g(\Sel)=c_g(\Sel)$, so for any feasible count vector $\bc\in\mathcal{C}(k)$,
+\[
+\KL\!\big(\bpi\,\big\|\,\widehat{\bpi}^{(\alpha)}(\bc)\big)
+=
+\underbrace{\sum_{g=1}^{G}\pi_g\log\pi_g + \log(k+\alpha G)}_{\text{constant over }\mathcal{C}(k)}
+-
+\Phi(\bc),
+\]
+where $\Phi(\bc)=\sum_{g=1}^{G}\pi_g\log(c_g+\alpha)$. Therefore minimizing KL over $\mathcal{C}(k)$ is equivalent to maximizing $\Phi$ over $\mathcal{C}(k)$.
+
+\paragraph{Telescoping marginal gains.}
+Let $r := k-\sum_{g=1}^{G}\ell_g$ be the number of discretionary units that remain after the mandatory lower bounds are satisfied. Any feasible allocation can be written as $\bc=\boldsymbol{\ell}+\mathbf{u}'$, where $\mathbf{u}'\in\mathbb{Z}_{\ge 0}^G$, $\sum_g u'_g=r$, and $u'_g\le u_g-\ell_g$. Define the gain of assigning the $j$th discretionary unit to group $g$ by
+\[
+a_{g,j}
+:=
+\pi_g\Big[\log(\ell_g+j+\alpha)-\log(\ell_g+j-1+\alpha)\Big],
+\]
+where $j=1,\dots,u_g-\ell_g$. Because $\log$ is concave, the sequence $a_{g,1}\ge a_{g,2}\ge\cdots$ is nonincreasing for each group $g$. By telescoping,
+\[
+\Phi(\boldsymbol{\ell}+\mathbf{u}')
+=
+\Phi(\boldsymbol{\ell})+
+\sum_{g=1}^{G}\sum_{j=1}^{u'_g} a_{g,j}.
+\]
+Hence maximizing $\Phi$ is equivalent to choosing exactly $r$ marginal gains from the multiset $\{a_{g,j}\}$, subject to the prefix condition that one may select $a_{g,j}$ only after selecting $a_{g,1},\dots,a_{g,j-1}$.
+
+\paragraph{Exchange argument.}
+Consider the greedy procedure that repeatedly chooses the largest currently available gain. We show inductively that after each greedy step there exists an optimal completion consistent with all greedy choices made so far. Suppose this is true after some number of steps, and let $g^\star$ be the group chosen by greedy at the next step. Let $\bc^{\mathrm{opt}}$ be an optimal completion of the current partial allocation. If $\bc^{\mathrm{opt}}$ already assigns the next discretionary unit to $g^\star$, there is nothing to prove. Otherwise, because the total number of remaining units is fixed, some other unsaturated group $h$ must receive a discretionary unit in $\bc^{\mathrm{opt}}$. Replace one such unit of group $h$ by one unit of group $g^\star$. The resulting allocation remains feasible because greedy only considers groups with remaining capacity and the removed unit comes from a group that had at least one removable discretionary allocation. The objective value cannot decrease, because the gained marginal benefit at $g^\star$ is at least as large as the lost marginal benefit at $h$ by construction of greedy and by the nonincreasing nature of each group's marginal sequence. Thus there exists an optimal completion agreeing with the greedy choice. Induction over all $r$ steps proves that greedy attains a global maximizer of $\Phi$, and therefore the minimum KL value $\KL_{\min}(k)$.
+
+\subsection{Full Proof of Theorem~\ref{thm:weighted_kl}}
+
+\paragraph{Part~\ref{item:reduction_general}.}
+This is Lemma~\ref{thm:kl_feasibility} with the notation
+\[
+\Phi^{(\bw)}(\Sel)=\sum_{g=1}^{G}\pi_g\log\big(W_g(\Sel)+\alpha\big).
+\]
+The only difference from the uniform-weight case is that $W(\Sel)$ is now subset-dependent, so the KL objective is not simply a constant minus $\Phi^{(\bw)}(\Sel)$.
+
+\paragraph{Part~\ref{item:submodular}.}
+Let $A\subseteq B\subseteq[N]$ and let $j\notin B$ belong to group $g_j$. The marginal gain of adding $j$ to a set $S$ is
+\begin{equation*}
+\begin{aligned}
+&\Phi^{(\bw)}(S\cup\{j\})-\Phi^{(\bw)}(S)
+=\\
+&\qquad \pi_{g_j}\Big[\log\big(W_{g_j}(S)+w_j+\alpha\big)-\log\big(W_{g_j}(S)+\alpha\big)\Big].
+\end{aligned}
+\end{equation*}
+Since $W_{g_j}(A)\le W_{g_j}(B)$ and the map
+\[
+t\mapsto \log(t+w_j+\alpha)-\log(t+\alpha)
+\]
+is nonincreasing in $t$ by concavity of $\log$, the marginal gain at $A$ is at least as large as the marginal gain at $B$. This is exactly the diminishing-returns property, so $\Phi^{(\bw)}$ is submodular. Nonnegativity of the weights implies that these marginal gains are nonnegative, so the function is monotone nondecreasing.
+
+\paragraph{Part~\ref{item:greedy}.}
+After reserving the lower bounds $\ell_g$, the remaining feasible family under upper capacities $u_g$ is a partition matroid: one may add at most $u_g-\ell_g$ additional elements from group $g$. Since $\Phi^{(\bw)}$ is monotone submodular, the classical result of Fisher, Nemhauser, and Wolsey yields the $(1/2)$ guarantee for greedy under a matroid constraint \cite{fisher1978submodular}. If the group constraints are removed and only the cardinality constraint remains, the stronger $(1-1/e)$ guarantee of Nemhauser, Wolsey, and Fisher applies \cite{nemhauser1978submodular}.
+
+\paragraph{Part~\ref{item:witness}.}
+The weighted-KL floor $\KL_{\min}^{(\bw)}(k)$ is the minimum of a finite set of feasible subsets and is therefore well defined. Any specific feasible subset provides an upper bound on that minimum, including the greedy subset. Consequently, if greedy already attains weighted KL at most $\tau$, then a feasible subset exists. If greedy exceeds $\tau$, the result is inconclusive because greedy is not guaranteed to minimize weighted KL exactly.
+
+\paragraph{Part~\ref{item:specialization}.}
+If $w_i\equiv 1$, then $W(\Sel)=k$ is identical for every cardinality-$k$ subset. The offset term $\log(W(\Sel)+\alpha G)$ in \eqref{eq:kl_phi_decomp} becomes constant, so maximizing $\Phi^{(\bw)}$ is exactly equivalent to minimizing KL. The stronger count-allocation result of Theorem~\ref{thm:quota} then applies.
+
+\section{Supplementary Tables}
+\label{app:supp_tables}
+
+This appendix supplements the main results with multi-seed variability, selection flexibility across the Pareto front, proxy-objective stability, and cross-space comparisons.
+
+\subsection{Multi-Seed Statistics}
+
+Table~\ref{tab:multi-seed-stats} reports the mean, standard deviation, minimum, and maximum of key quality metrics across five independent replicas at $k{=}100$ for the VAE sweep, the raw-space sweep, and the baseline suite. All three experiment families exhibit low cross-replica variance, confirming that the NSGA-II search converges reliably across random seeds. The VAE and raw sweeps achieve nearly identical mean operator fidelity, consistent with the representation-transfer results discussed in Section~\ref{subsec:q_space}.
+
+\begin{table}[h]
+\centering
+\caption{Multi-seed statistics at $k=100$.}
+\label{tab:multi-seed-stats}
+\small
+\begin{tabular}{l l c c c c}
+\toprule
+Run & Metric & Mean & Std & Min & Max \\
+\midrule
+VAE sweep & $e_{\mathrm{Nys}}$ & 0.0429 & 0.0010 & 0.0418 & 0.0444 \\
+VAE sweep & $e_{\mathrm{kPCA}}$ & 0.0860 & 0.0035 & 0.0832 & 0.0916 \\
+VAE sweep & RMSE 4G & 5.175 & 0.556 & 4.743 & 6.133 \\
+Raw sweep & $e_{\mathrm{Nys}}$ & 0.0402 & 0.0015 & 0.0388 & 0.0424 \\
+Raw sweep & $e_{\mathrm{kPCA}}$ & 0.0739 & 0.0064 & 0.0682 & 0.0815 \\
+Raw sweep & RMSE 4G & 5.231 & 0.548 & 4.824 & 6.164 \\
+PCA sweep & $e_{\mathrm{Nys}}$ & 0.0396 & 0.0006 & 0.0393 & 0.0407 \\
+PCA sweep & $e_{\mathrm{kPCA}}$ & 0.0728 & 0.0041 & 0.0679 & 0.0789 \\
+PCA sweep & RMSE 4G & 5.245 & 0.597 & 4.792 & 6.276 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Selection Flexibility}
+
+Table~\ref{tab:selection_strategies} compares the mean rank of three NSGA-II selection strategies (knee, best-MMD, best-SH) against the per-metric best baseline across all championship metrics. The knee achieves the best single-selection rank ($1.95$), well ahead of best-MMD ($2.85$) and best-SH ($3.85$). The per-metric best baseline (an oracle that cherry-picks the strongest of eight baselines for each metric) achieves a mean rank of $1.36$, illustrating the diversity advantage of eight independent heuristics; however, the Pareto envelope in Table~\ref{tab:best_achievable} outperforms even this baseline oracle, confirming that the full front contains richer solutions than any fixed selection.
+
+\begin{table}[h]
+\centering
+\caption{Selection flexibility: mean rank of VAE-sweep selections versus per-metric best baseline ($k=100$, VAE space).}
+\label{tab:selection_strategies}
+\small
+\begin{tabular}{@{}l r r@{}}
+\toprule
+Selection & Mean Rank & Median \\
+\midrule
+VAE-sweep knee      & 1.95 & 2.0 \\
+VAE-sweep best MMD  & 2.85 & 3.0 \\
+VAE-sweep best SH   & 3.85 & 4.0 \\
+Best baseline       & 1.36 & 1.0 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Proxy Stability Diagnostics}
+
+Table~\ref{tab:proxy-stability} assesses how faithfully the fixed-cost surrogate objectives preserve the ranking of Pareto-front solutions relative to higher-budget reference computations. For RFF-MMD, even reducing the number of random features from 2000 to 500 yields a near-perfect Spearman rank correlation ($\rho{=}0.999$), consistent with the $O(1/\sqrt{m})$ convergence rate of random Fourier features. The anchor-SH surrogate is somewhat more budget-sensitive ($\rho{=}0.985$ at $A{=}50$) due to the nonlinear Sinkhorn fixed-point iterations, but the default anchor count ($A{=}200$) provides reliable rank stability. Cross-space correlations are high for MMD ($\rho \ge 0.990$) and moderate for SH ($\rho{=}0.847$ for VAE versus PCA), reflecting the greater sensitivity of transport-based measures to representation geometry.
+
+\begin{table}[h]
+\centering
+\caption{Proxy stability (diagnostics, $k=100$): Spearman $\rho$ of surrogate objectives against reference settings.}
+\label{tab:proxy-stability}
+\small
+\begin{tabular}{l l l c}
+\toprule
+Component & Objective & Perturbation & $\rho$ \\
+\midrule
+Random features & MMD & $m{=}500$ vs. $m{=}2000$ & 0.999 \\
+Random features & MMD & $m{=}4000$ vs. $m{=}2000$ & 1.000 \\
+Anchors & SH & $A{=}50$ vs. $A{=}200$ & 0.985 \\
+Anchors & SH & $A{=}400$ vs. $A{=}200$ & 0.996 \\
+Cross-space & MMD & VAE vs. Raw & 0.992 \\
+Cross-space & SH & VAE vs. Raw & 0.941 \\
+Cross-space & MMD & VAE vs. PCA & 0.990 \\
+Cross-space & SH & VAE vs. PCA & 0.847 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Cross-Space Pareto Envelope Comparison}
+
+Table~\ref{tab:cross_space_oracle} compares the per-metric best-achievable performance of Pareto envelopes from each representation space (VAE, raw, PCA), all evaluated on processed raw-space Nyström features. The three envelopes achieve near-identical mean ranks ($1.93$--$2.07$), with no single space uniformly dominating. Each space contributes unique per-metric wins, supporting the practitioner strategy of pooling fronts from multiple representations when computational cost permits: the pooled envelope would inherit the best-achievable performance of each constituent space without requiring prior knowledge of which representation best suits a given metric.
+
+\begin{table}[h]
+\centering
+\caption{Cross-space Pareto envelope comparison at $k=100$ (5 replicas each).}
+\label{tab:cross_space_oracle}
+\small
+\begin{tabular}{@{}l r r r r@{}}
+\toprule
+Pareto envelope & Mean rank & Median & Dominant & $N_{\mathrm{valid}}$ \\
+\midrule
+VAE Pareto  & 2.00 & 2.0 & 1073  & 3065 \\
+Raw Pareto  & 1.93 & 2.0 & 1009  & 3065 \\
+PCA Pareto  & 2.07 & 2.0 & 983  & 3065 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\bibliographystyle{IEEEtran}
+\bibliography{manuscript/references}
+
+\end{document}

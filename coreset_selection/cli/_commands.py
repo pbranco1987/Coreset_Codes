@@ -72,9 +72,16 @@ def cmd_run(args: argparse.Namespace) -> int:
     else:
         cfg = replace(base_cfg, run_id=args.run_id, rep_id=args.rep_id)
 
-    # Update k if specified
+    # Update k if specified — always encode k in the run_id
     if args.k is not None:
-        cfg = replace(cfg, solver=replace(cfg.solver, k=args.k))
+        run_id_with_k = cfg.run_id
+        if f"_k{args.k}" not in run_id_with_k:
+            run_id_with_k = f"{run_id_with_k}_k{args.k}"
+        cfg = replace(
+            cfg,
+            run_id=run_id_with_k,
+            solver=replace(cfg.solver, k=args.k),
+        )
 
     # Run experiment
     try:
@@ -486,16 +493,19 @@ def cmd_scenario(args: argparse.Namespace) -> int:
     # Dimension override (for T_vdim / T_pdim single-dimension runs)
     dim_override = getattr(args, "dim_override", None)
 
+    # --force: allow overwriting completed results
+    if getattr(args, "force", False):
+        os.environ["CORESET_FORCE_OVERWRITE"] = "1"
+    else:
+        os.environ.pop("CORESET_FORCE_OVERWRITE", None)
+
     # Effort level override (for T_eff single-level runs)
     effort_level = getattr(args, "effort_level", None)
     if effort_level is not None:
-        import os
         os.environ["CORESET_EFFORT_LEVEL"] = str(int(effort_level))
 
     # Special handling: R6 depends on outputs from prior runs.
     if run_id == "R6":
-        import os
-
         src = str(getattr(args, "source_run", "R1"))
         src_space = str(getattr(args, "source_space", "vae"))
         # -k is stored as k_single by argparse; k_values is the merged form
@@ -571,8 +581,16 @@ def cmd_scenario(args: argparse.Namespace) -> int:
     n_failed = 0
 
     for k in k_values:
-        # Use suffix only when multiple k values are being run for this scenario.
-        run_name = f"{run_id}_k{k}" if len(k_values) > 1 else run_id
+        # Always include _k{k} suffix so that parallel single-k
+        # launches (e.g. separate tmux windows for k=100 and k=300)
+        # never collide.  This matches run_scenario_standalone().
+        # Also include _d{dim} and _e{effort} when specified, so that
+        # parallel dim-sweep or effort-sweep jobs never collide.
+        run_name = f"{run_id}_k{k}"
+        if dim_override is not None:
+            run_name += f"_d{dim_override}"
+        if effort_level is not None:
+            run_name += f"_e{effort_level}"
         for rep in _rep_ids_for_k(k):
             print(f"[scenario] {run_name} rep={rep} ({n_done+1}/{n_total})")
             try:
@@ -713,6 +731,7 @@ def _run_sequential(runs: list, args: argparse.Namespace) -> int:
             seed=args.seed,
             device=args.device,
             fail_fast=getattr(args, 'fail_fast', False),
+            force=getattr(args, 'force', False),
             source_run=getattr(args, 'source_run', 'R1'),
             source_space=getattr(args, 'source_space', 'vae'),
         )

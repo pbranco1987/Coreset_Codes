@@ -1,40 +1,61 @@
-# Python
+# ── Python ──
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
-
-# Distribution / packaging
 build/
 dist/
 *.egg-info/
 *.egg
 
-# Virtual environments
+# ── Virtual environments ──
 venv/
 .venv/
 env/
 
-# Jupyter
+# ── Jupyter ──
 .ipynb_checkpoints/
 
-# IDE
+# ── IDE / OS ──
 .idea/
 .vscode/
+.claude/
 *.swp
 *.swo
 *~
-
-# OS
 .DS_Store
 Thumbs.db
+NUL
 
-# Experiment outputs (large, not tracked in git)
+# ── Experiment outputs (large, regenerable) ──
+EXPERIMENTS-*/
+replicate_cache*/
 runs_out*/
-replicate_cache/
+bootstrap_results/
+bootstrap_reports/
 logs/
 
-# Temporary / generated
+# ── Data files (large — see README for download instructions) ──
+data/*.hdf5
+data/*.csv
+data/*.parquet
+*.npz
+
+# ── LaTeX build artifacts ──
+*.aux
+*.bbl
+*.blg
+*.log
+*.out
+*.synctex.gz
+*.fls
+*.fdb_latexmk
+
+# ── Archives ──
+*.zip
+*.tar.gz
+
+# ── Temporary ──
 *.tmp
 *.bak
 DONE_*

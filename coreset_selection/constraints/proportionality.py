@@ -206,6 +206,20 @@ class ProportionalityConstraintSet:
                     return False
         return True
 
+    def relax_tau(self, factor: float) -> None:
+        """Multiply tau of every constraint by *factor* (creates new frozen instances)."""
+        import dataclasses
+        self.constraints = [
+            dataclasses.replace(c, tau=c.tau * factor)
+            for c in self.constraints
+        ]
+
+    def max_tau(self) -> float:
+        """Return the maximum tau across all constraints."""
+        if not self.constraints:
+            return 0.0
+        return float(max(c.tau for c in self.constraints))
+
     def repair(self, mask: np.ndarray, rng: np.random.Generator) -> np.ndarray:
         """Heuristic repair to reduce KL violations while preserving |S|."""
         mask = np.asarray(mask, dtype=bool).copy()

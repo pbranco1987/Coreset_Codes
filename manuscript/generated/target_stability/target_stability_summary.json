@@ -1,0 +1,399 @@
+{
+  "n_championship_metrics": 409,
+  "n_supervised_targets": 27,
+  "n_non_target_metrics": 4,
+  "supervised_targets": [
+    "broadband_speed_tier",
+    "concentrated_mobile_market",
+    "cov_area_4g",
+    "cov_area_all",
+    "densidade_banda larga fixa_2025",
+    "densidade_telefonia movel_2025",
+    "hhi scm_2024",
+    "hhi smp_2024",
+    "high_fiber_backhaul",
+    "high_speed_broadband",
+    "income_extremes",
+    "income_speed_class",
+    "income_tier",
+    "infra_density_tier",
+    "mobile_penetration_tier",
+    "pct_escolas_fibra",
+    "pct_escolas_internet",
+    "pct_fibra_backhaul",
+    "pct_limite_mean",
+    "renda_media_mean",
+    "renda_media_std",
+    "road_coverage_4g_tier",
+    "speed_extremes",
+    "urban_rural_extremes",
+    "urbanization_level",
+    "velocidade_mediana_mean",
+    "velocidade_mediana_std"
+  ],
+  "full_ranking": [
+    "PU",
+    "NSGA-II",
+    "PKH",
+    "PKM",
+    "PKKN",
+    "PKT",
+    "PRLS",
+    "PFF",
+    "PDPP"
+  ],
+  "full_scores": {
+    "NSGA-II": 0.5441595368452374,
+    "PU": 0.5514150999181605,
+    "PKM": 0.5400588007038581,
+    "PKH": 0.5416916858290163,
+    "PFF": 0.44956113295080313,
+    "PRLS": 0.4680309435625475,
+    "PDPP": 0.40108632022703417,
+    "PKT": 0.5274030765674003,
+    "PKKN": 0.5293500953176487
+  },
+  "leave_one_out": [
+    {
+      "dropped": "broadband_speed_tier",
+      "n_dropped": 15,
+      "tau": 0.9444444444444445,
+      "rank1": "PU",
+      "nsga_rank": 3
+    },
+    {
+      "dropped": "concentrated_mobile_market",
+      "n_dropped": 15,
+      "tau": 0.9444444444444445,
+      "rank1": "PU",
+      "nsga_rank": 2
+    },
+    {
+      "dropped": "cov_area_4g",
+      "n_dropped": 15,
+      "tau": 1.0,
+      "rank1": "PU",
+      "nsga_rank": 2
+    },
+    {
+      "dropped": "cov_area_all",
+      "n_dropped": 15,
+      "tau": 1.0,
+      "rank1": "PU",
+      "nsga_rank": 2
+    },
+    {
+      "dropped": "densidade_banda larga fixa_2025",
+      "n_dropped": 15,
+      "tau": 0.9444444444444445,
+      "rank1": "PU",
+      "nsga_rank": 2
+    },
+    {
+      "dropped": "densidade_telefonia movel_2025",
+      "n_dropped": 15,
+      "tau": 0.9444444444444445,
+      "rank1": "PU",
+      "nsga_rank": 2
+    },
+    {
+      "dropped": "hhi scm_2024",
+      "n_dropped": 15,
+      "tau": 1.0,
+      "rank1": "PU",
+      "nsga_rank": 2
+    },
+    {
+      "dropped": "hhi smp_2024",
+      "n_dropped": 15,
+      "tau": 0.9444444444444445,
+      "rank1": "PU",
+      "nsga_rank": 2
+    },
+    {
+      "dropped": "high_fiber_backhaul",
+      "n_dropped": 15,
+      "tau": 0.8888888888888888,
+      "rank1": "PU",
+      "nsga_rank": 3
+    },
+    {
+      "dropped": "high_speed_broadband",
+      "n_dropped": 15,
+      "tau": 0.8888888888888888,
+      "rank1": "PU",
+      "nsga_rank": 4
+    },
+    {
+      "dropped": "income_extremes",
+      "n_dropped": 15,
+      "tau": 1.0,
+      "rank1": "PU",
+      "nsga_rank": 2
+    },
+    {
+      "dropped": "income_speed_class",
+      "n_dropped": 15,
+      "tau": 0.9444444444444445,
+      "rank1": "PU",
+      "nsga_rank": 2
+    },
+    {
+      "dropped": "income_tier",
+      "n_dropped": 15,
+      "tau": 1.0,
+      "rank1": "PU",
+      "nsga_rank": 2
+    },
+    {
+      "dropped": "infra_density_tier",
+      "n_dropped": 15,
+      "tau": 0.9444444444444445,
+      "rank1": "PU",
+      "nsga_rank": 2
+    },
+    {
+      "dropped": "mobile_penetration_tier",
+      "n_dropped": 15,
+      "tau": 0.7222222222222222,
+      "rank1": "PKM",
+      "nsga_rank": 4
+    },
+    {
+      "dropped": "pct_escolas_fibra",
+      "n_dropped": 15,
+      "tau": 0.9444444444444445,
+      "rank1": "NSGA-II",
+      "nsga_rank": 1
+    },
+    {
+      "dropped": "pct_escolas_internet",
+      "n_dropped": 15,
+      "tau": 0.9444444444444445,
+      "rank1": "PU",
+      "nsga_rank": 2
+    },
+    {
+      "dropped": "pct_fibra_backhaul",
+      "n_dropped": 15,
+      "tau": 0.8888888888888888,
+      "rank1": "PU",
+      "nsga_rank": 3
+    },
+    {
+      "dropped": "pct_limite_mean",
+      "n_dropped": 15,
+      "tau": 0.9444444444444445,
+      "rank1": "PU",
+      "nsga_rank": 3
+    },
+    {
+      "dropped": "renda_media_mean",
+      "n_dropped": 15,
+      "tau": 0.9444444444444445,
+      "rank1": "NSGA-II",
+      "nsga_rank": 1
+    },
+    {
+      "dropped": "renda_media_std",
+      "n_dropped": 15,
+      "tau": 1.0,
+      "rank1": "PU",
+      "nsga_rank": 2
+    },
+    {
+      "dropped": "road_coverage_4g_tier",
+      "n_dropped": 15,
+      "tau": 0.8888888888888888,
+      "rank1": "PU",
+      "nsga_rank": 2
+    },
+    {
+      "dropped": "speed_extremes",
+      "n_dropped": 15,
+      "tau": 1.0,
+      "rank1": "PU",
+      "nsga_rank": 2
+    },
+    {
+      "dropped": "urban_rural_extremes",
+      "n_dropped": 15,
+      "tau": 1.0,
+      "rank1": "PU",
+      "nsga_rank": 2
+    },
+    {
+      "dropped": "urbanization_level",
+      "n_dropped": 15,
+      "tau": 0.9444444444444445,
+      "rank1": "PU",
+      "nsga_rank": 3
+    },
+    {
+      "dropped": "velocidade_mediana_mean",
+      "n_dropped": 15,
+      "tau": 0.8333333333333334,
+      "rank1": "PU",
+      "nsga_rank": 4
+    },
+    {
+      "dropped": "velocidade_mediana_std",
+      "n_dropped": 15,
+      "tau": 0.9444444444444445,
+      "rank1": "PU",
+      "nsga_rank": 2
+    }
+  ],
+  "bootstrap": {
+    "1": {
+      "tau_mean": 0.9391666666666667,
+      "tau_std": 0.061713570750806634,
+      "tau_min": 0.7222222222222222,
+      "tau_p5": 0.8333333333333334,
+      "nsga_rank_mean": 2.349,
+      "nsga_rank1_pct": 6.2,
+      "rank1_distribution": {
+        "PU": 899,
+        "NSGA-II": 62,
+        "PKM": 39
+      }
+    },
+    "2": {
+      "tau_mean": 0.8992222222222224,
+      "tau_std": 0.07305933661529285,
+      "tau_min": 0.6666666666666666,
+      "tau_p5": 0.7777777777777778,
+      "nsga_rank_mean": 2.488,
+      "nsga_rank1_pct": 12.7,
+      "rank1_distribution": {
+        "PU": 739,
+        "NSGA-II": 127,
+        "PKM": 75,
+        "PKH": 59
+      }
+    },
+    "3": {
+      "tau_mean": 0.8752777777777779,
+      "tau_std": 0.08601203978312759,
+      "tau_min": 0.5,
+      "tau_p5": 0.7222222222222222,
+      "nsga_rank_mean": 2.491,
+      "nsga_rank1_pct": 17.2,
+      "rank1_distribution": {
+        "PU": 682,
+        "NSGA-II": 172,
+        "PKH": 60,
+        "PKM": 86
+      }
+    },
+    "4": {
+      "tau_mean": 0.8479444444444446,
+      "tau_std": 0.09302579955429598,
+      "tau_min": 0.4444444444444444,
+      "tau_p5": 0.6666666666666666,
+      "nsga_rank_mean": 2.485,
+      "nsga_rank1_pct": 21.0,
+      "rank1_distribution": {
+        "PU": 573,
+        "PKH": 93,
+        "PKM": 120,
+        "NSGA-II": 210,
+        "PKKN": 4
+      }
+    },
+    "5": {
+      "tau_mean": 0.8279444444444446,
+      "tau_std": 0.09518648039182202,
+      "tau_min": 0.5,
+      "tau_p5": 0.6666666666666666,
+      "nsga_rank_mean": 2.526,
+      "nsga_rank1_pct": 24.3,
+      "rank1_distribution": {
+        "PKH": 106,
+        "PU": 515,
+        "PKM": 136,
+        "NSGA-II": 243
+      }
+    },
+    "6": {
+      "tau_mean": 0.814,
+      "tau_std": 0.11261339963688947,
+      "tau_min": 0.3888888888888889,
+      "tau_p5": 0.611111111111111,
+      "nsga_rank_mean": 2.591,
+      "nsga_rank1_pct": 23.3,
+      "rank1_distribution": {
+        "PU": 483,
+        "NSGA-II": 233,
+        "PKM": 144,
+        "PKH": 132,
+        "PKT": 5,
+        "PKKN": 3
+      }
+    },
+    "7": {
+      "tau_mean": 0.7892222222222223,
+      "tau_std": 0.11240309955745643,
+      "tau_min": 0.3888888888888889,
+      "tau_p5": 0.611111111111111,
+      "nsga_rank_mean": 2.613,
+      "nsga_rank1_pct": 26.4,
+      "rank1_distribution": {
+        "PKM": 170,
+        "NSGA-II": 264,
+        "PU": 410,
+        "PKH": 127,
+        "PKKN": 12,
+        "PKT": 17
+      }
+    },
+    "8": {
+      "tau_mean": 0.7782777777777777,
+      "tau_std": 0.11670527139067187,
+      "tau_min": 0.3333333333333333,
+      "tau_p5": 0.5555555555555556,
+      "nsga_rank_mean": 2.629,
+      "nsga_rank1_pct": 26.4,
+      "rank1_distribution": {
+        "NSGA-II": 264,
+        "PKH": 151,
+        "PKM": 167,
+        "PU": 393,
+        "PKT": 11,
+        "PKKN": 14
+      }
+    },
+    "9": {
+      "tau_mean": 0.7674444444444445,
+      "tau_std": 0.11731833868834231,
+      "tau_min": 0.2777777777777778,
+      "tau_p5": 0.5555555555555556,
+      "nsga_rank_mean": 2.656,
+      "nsga_rank1_pct": 26.7,
+      "rank1_distribution": {
+        "NSGA-II": 267,
+        "PKH": 157,
+        "PKM": 163,
+        "PU": 390,
+        "PKKN": 10,
+        "PKT": 13
+      }
+    },
+    "10": {
+      "tau_mean": 0.7511666666666666,
+      "tau_std": 0.12369764761179318,
+      "tau_min": 0.2222222222222222,
+      "tau_p5": 0.5555555555555556,
+      "nsga_rank_mean": 2.68,
+      "nsga_rank1_pct": 26.6,
+      "rank1_distribution": {
+        "PU": 361,
+        "NSGA-II": 266,
+        "PKM": 186,
+        "PKH": 147,
+        "PKKN": 14,
+        "PKT": 26
+      }
+    }
+  }
+}

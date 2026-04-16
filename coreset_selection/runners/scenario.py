@@ -751,6 +751,12 @@ Scenarios (all run with 1 replicate by default):
         )
     )
 
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Allow overwriting completed results (USE WITH CARE)"
+    )
+
     # R6-specific options
     parser.add_argument(
         "--source-run",
@@ -803,6 +809,12 @@ Scenarios (all run with 1 replicate by default):
     k_values = parse_int_list(args.k_values)
     rep_ids = parse_int_list(args.rep_ids)
     dim_values_list = parse_int_list(args.dim_values) if args.dim_values else None
+
+    # --force: allow overwriting completed results
+    if getattr(args, "force", False):
+        os.environ["CORESET_FORCE_OVERWRITE"] = "1"
+    else:
+        os.environ.pop("CORESET_FORCE_OVERWRITE", None)
 
     try:
         summary = run_scenario_standalone(
